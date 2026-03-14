@@ -11,15 +11,22 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
 
-  const res = await fetch("/api/claude", {
+  const betas: string[] = [];
+  if (body.mcp_servers?.length) betas.push("mcp-client-2025-04-04");
+  if (body.tools?.some((t: { type?: string }) => t.type?.startsWith("web_search"))) {
+    betas.push("web-search-2025-03-05");
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-api-key": process.env.ANTHROPIC_API_KEY!,
+    "anthropic-version": "2023-06-01",
+  };
+  if (betas.length) headers["anthropic-beta"] = betas.join(",");
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      //"x-api-key": process.env.ANTHROPIC_API_KEY!,
-      "anthropic-version": "2023-06-01",
-      // MCP servers require the beta header
-      ...(body.mcp_servers?.length ? { "anthropic-beta": "mcp-client-2025-04-04" } : {}),
-    },
+    headers,
     body: JSON.stringify(body),
   });
 
