@@ -37,11 +37,11 @@ const riskColor  = (s: string) => s==="High"?C.red:s==="Medium"?C.yellow:C.brand
 const riskBg     = (s: string) => s==="High"?"#2a1515":s==="Medium"?"#2a2015":"#0e1f17";
 const riskBorder = (s: string) => s==="High"?"#7f1d1d":s==="Medium"?"#78350f":"#145235";
 const npsColor   = (s: number) => s>=9?C.brand:s>=7?C.yellow:C.red;
-const npsBg      = s => s>=9?"#0e1f17":s>=7?"#2a2015":"#2a1515";
-const npsBorder  = s => s>=9?"#145235":s>=7?"#78350f":"#7f1d1d";
-const npsLabel   = s => s>=9?"Promoter":s>=7?"Passive":"Detractor";
-const scoreColor = s => s>=70?C.red:s>=45?C.yellow:C.brand;
-const chanColor  = c => ({Email:C.brand,Phone:C.yellow,Slack:C.blue,Legal:C.red}[c]||C.brand);
+const npsBg      = (s: number) => s>=9?"#0e1f17":s>=7?"#2a2015":"#2a1515";
+const npsBorder  = (s: number) => s>=9?"#145235":s>=7?"#78350f":"#7f1d1d";
+const npsLabel   = (s: number) => s>=9?"Promoter":s>=7?"Passive":"Detractor";
+const scoreColor = (s: number) => s>=70?C.red:s>=45?C.yellow:C.brand;
+const chanColor  = (s: number) => ({Email:C.brand,Phone:C.yellow,Slack:C.blue,Legal:C.red}[c]||C.brand);
 
 const parseNum = v => parseFloat((v||"").toString().replace(/[^0-9.-]/g,""))||0;
 const isValidCurrency = c => /^[A-Z]{3}$/.test(c||"");
