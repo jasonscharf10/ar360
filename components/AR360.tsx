@@ -33,10 +33,10 @@ const C = {
   brand:"#21c97a", brandDark:"#17a863", brandGlow:"#21c97a33", greenLight:"#6ee7b7",
   red:"#ef4444", yellow:"#f59e0b", blue:"#60a5fa",
 };
-const riskColor  = s => s==="High"?C.red:s==="Medium"?C.yellow:C.brand;
-const riskBg     = s => s==="High"?"#2a1515":s==="Medium"?"#2a2015":"#0e1f17";
-const riskBorder = s => s==="High"?"#7f1d1d":s==="Medium"?"#78350f":"#145235";
-const npsColor   = s => s>=9?C.brand:s>=7?C.yellow:C.red;
+const riskColor  = (s: string) => s==="High"?C.red:s==="Medium"?C.yellow:C.brand;
+const riskBg     = (s: string) => s==="High"?"#2a1515":s==="Medium"?"#2a2015":"#0e1f17";
+const riskBorder = (s: string) => s==="High"?"#7f1d1d":s==="Medium"?"#78350f":"#145235";
+const npsColor   = (s: number) => s>=9?C.brand:s>=7?C.yellow:C.red;
 const npsBg      = s => s>=9?"#0e1f17":s>=7?"#2a2015":"#2a1515";
 const npsBorder  = s => s>=9?"#145235":s>=7?"#78350f":"#7f1d1d";
 const npsLabel   = s => s>=9?"Promoter":s>=7?"Passive":"Detractor";
