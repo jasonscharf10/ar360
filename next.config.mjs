@@ -1,9 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
-  typescript: {
+ typescript: {
     ignoreBuildErrors: true,
   },
 };
-
-module.exports = nextConfig;
+export default nextConfig;
