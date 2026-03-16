@@ -1046,7 +1046,6 @@ export default function App({ user }) {
                       {hasUsage&&<span style={{color:C.brand}}>· usage ✓</span>}
                       {taskCount>0&&<span style={{color:C.brand}}>· {taskCount} tasks</span>}
                       {c.accountManager&&<span>· {c.accountManager.replace("@pandadoc.com","")}</span>}
-                      {d&&<span style={{color:C.muted}}>· {d.summary}</span>}
                     </div>
                   </div>
                   <div style={{flexShrink:0,textAlign:"center",minWidth:52}}>
