@@ -41,7 +41,7 @@ const npsBg      = (s: number) => s>=9?"#0e1f17":s>=7?"#2a2015":"#2a1515";
 const npsBorder  = (s: number) => s>=9?"#145235":s>=7?"#78350f":"#7f1d1d";
 const npsLabel   = (s: number) => s>=9?"Promoter":s>=7?"Passive":"Detractor";
 const scoreColor = (s: number) => s>=70?C.red:s>=45?C.yellow:C.brand;
-const chanColor  = (s: number) => ({Email:C.brand,Phone:C.yellow,Slack:C.blue,Legal:C.red}[c]||C.brand);
+const chanColor  = (s: number) => ({Email:C.brand,Phone:C.yellow,Slack:C.blue,Legal:C.red}[s]||C.brand);
 
 const parseNum = v => parseFloat((v||"").toString().replace(/[^0-9.-]/g,""))||0;
 const isValidCurrency = c => /^[A-Z]{3}$/.test(c||"");
@@ -175,20 +175,27 @@ function getTasks(c, tasksIndex) {
   }).filter(t=>t.subject||t.desc).sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0)).slice(0,10);
 }
 
-function computeRiskScore(c, usageIndex, npsIndex) {
+function computeRiskScore(c, usageIndex, npsIndex, disputes) {
   const overduePct = Math.min(c.maxDaysOverdue/120,1)*100;
   const amountPct  = Math.min(Math.log10(Math.max(c.totalOutstanding,1))/Math.log10(500000),1)*100;
   const nps = getNpsSummary(c,npsIndex);
   const npsPct = nps ? Math.round((10-nps.latest.score)/10*100) : 50;
   const hasUsage = !!usageIndex[c.organizationUuid];
   const usagePct = hasUsage ? 20 : 100;
+  const d = disputes?.[c.organizationUuid];
+  const disputeMod = d ? d.risk_modifier : 0;
   const factors = [
     {name:"Days Overdue",raw:overduePct,weight:0.40},
     {name:"Amount",      raw:amountPct, weight:0.25},
     {name:"NPS Risk",    raw:npsPct,    weight:0.20, noData:!nps},
     {name:"No Usage",    raw:usagePct,  weight:0.15},
   ];
-  return {total:Math.round(factors.reduce((s,f)=>s+f.raw*f.weight,0)), factors};
+  const base = Math.round(factors.reduce((s,f)=>s+f.raw*f.weight,0));
+  const total = Math.max(0, Math.min(100, base + disputeMod));
+  if (d && d.dispute_category !== "insufficient_data") {
+    factors.push({name:"Dispute",raw:Math.min(100, Math.max(0, 50 + disputeMod)),weight:0, noData:false});
+  }
+  return {total, factors};
 }
 
 function fmtUsage(s) {
@@ -286,6 +293,29 @@ function StatusBadge({status}) {
   const s=(status||"").toLowerCase();
   const col=s.includes("complet")||s.includes("done")?C.brand:s.includes("progress")?C.blue:C.yellow;
   return status?<span style={{fontSize:10,background:col+"22",border:`1px solid ${col}44`,color:col,borderRadius:8,padding:"1px 7px",fontWeight:600}}>{status}</span>:null;
+}
+
+const DISPUTE_META = {
+  cancellation_dispute:          {label:"Cancellation",         color:C.red},
+  payment_method_failure:        {label:"Payment Failure",      color:C.yellow},
+  seat_pricing_dispute:          {label:"Pricing Dispute",      color:C.yellow},
+  enterprise_ap_delay:           {label:"AP Delay",             color:C.blue},
+  auto_renewal_confusion:        {label:"Auto-Renewal",         color:C.yellow},
+  international_payment_barrier: {label:"Intl Payment",         color:C.yellow},
+  product_dissatisfaction:       {label:"Product Issue",        color:C.red},
+  billing_error:                 {label:"Billing Error",        color:C.yellow},
+  no_dispute_detected:           {label:"No Dispute",           color:C.brand},
+  insufficient_data:             {label:"Insufficient Data",    color:C.vfaint},
+};
+
+function DisputeBadge({d}) {
+  if(!d) return null;
+  const m=DISPUTE_META[d.dispute_category]||{label:d.dispute_category,color:C.faint};
+  return (
+    <span title={d.summary} style={{fontSize:10,background:m.color+"22",border:`1px solid ${m.color}44`,color:m.color,borderRadius:8,padding:"1px 7px",fontWeight:600,cursor:"default",whiteSpace:"nowrap"}}>
+      {m.label}
+    </span>
+  );
 }
 
 // ── Drop Zone ─────────────────────────────────────────────────────────────────
@@ -474,11 +504,11 @@ function AMBreakdown({customers}) {
 }
 
 // ── Hit List ──────────────────────────────────────────────────────────────────
-function HitList({customers,usageIndex,npsIndex,tasksIndex,onSelect}) {
+function HitList({customers,usageIndex,npsIndex,tasksIndex,onSelect,disputes}) {
   const [emails,setEmails]=useState({});
   const [generating,setGenerating]=useState(false);
   const [progress,setProgress]=useState(0);
-  const ranked=[...customers].map(c=>({...c,_risk:computeRiskScore(c,usageIndex,npsIndex)})).sort((a,b)=>b._risk.total-a._risk.total).slice(0,10);
+  const ranked=[...customers].map(c=>({...c,_risk:computeRiskScore(c,usageIndex,npsIndex,disputes)})).sort((a,b)=>b._risk.total-a._risk.total).slice(0,10);
 
   async function genAll() {
     setGenerating(true);setProgress(0);
@@ -573,7 +603,7 @@ function HitList({customers,usageIndex,npsIndex,tasksIndex,onSelect}) {
 }
 
 // ── Customer Detail ───────────────────────────────────────────────────────────
-function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack}) {
+function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute}) {
   const [rec,setRec]=useState(null); const [recErr,setRecErr]=useState(null); const [recLoading,setRecLoading]=useState(false);
   const [emails,setEmails]=useState([]); const [emailLoading,setEmailLoading]=useState(false); const [emailErr,setEmailErr]=useState(null);
   const [news,setNews]=useState(null); const [newsLoading,setNewsLoading]=useState(false); const [newsErr,setNewsErr]=useState(null);
@@ -615,13 +645,27 @@ function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack}) {
             {selected.accountManager&&<span>· {selected.accountManager.replace("@pandadoc.com","")}</span>}
             {usageSummary&&<span style={{color:C.brand}}>· usage ✓</span>}
             {tasks.length>0&&<span style={{color:C.brand}}>· {tasks.length} tasks</span>}
+            <DisputeBadge d={dispute}/>
             {npsSummary&&<NpsBadge score={npsSummary.latest.score}/>}
           </div>
         </div>
       </div>
 
+      {/* Dispute Classification */}
+      {dispute&&dispute.dispute_category!=="insufficient_data"&&(
+        <div style={{margin:"0 20px",marginTop:12,padding:"10px 14px",background:C.surface,border:`1px solid ${(DISPUTE_META[dispute.dispute_category]||{color:C.faint}).color}44`,borderRadius:10,display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+          <DisputeBadge d={dispute}/>
+          <div style={{flex:1,fontSize:12,color:C.muted,lineHeight:1.5}}>{dispute.summary}</div>
+          <div style={{display:"flex",gap:10,flexShrink:0,fontSize:11}}>
+            <div style={{textAlign:"center"}}><div style={{color:C.faint,marginBottom:1}}>Action</div><div style={{color:C.text,fontWeight:600}}>{(dispute.recommended_action||"").replace(/_/g," ")}</div></div>
+            <div style={{textAlign:"center"}}><div style={{color:C.faint,marginBottom:1}}>Collect</div><div style={{color:dispute.collection_probability==="high"?C.brand:dispute.collection_probability==="low"?C.red:C.yellow,fontWeight:600}}>{dispute.collection_probability}</div></div>
+            <div style={{textAlign:"center"}}><div style={{color:C.faint,marginBottom:1}}>Risk Δ</div><div style={{color:dispute.risk_modifier>0?C.red:dispute.risk_modifier<0?C.brand:C.muted,fontWeight:600}}>{dispute.risk_modifier>0?"+":""}{dispute.risk_modifier}</div></div>
+          </div>
+        </div>
+      )}
+
       {/* Tabs */}
-      <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,background:C.surfaceDim,overflowX:"auto",flexShrink:0}}>
+      <div style={{display:"flex",borderBottom:`1px solid ${C.border}`,background:C.surfaceDim,overflowX:"auto",flexShrink:0,marginTop:dispute&&dispute.dispute_category!=="insufficient_data"?8:0}}>
         {tabs.map(t=>(
           <button key={t} onClick={()=>setTab(t)} style={{background:"none",border:"none",borderBottom:tab===t?`2px solid ${C.brand}`:"2px solid transparent",padding:"10px 14px",fontSize:13,color:tab===t?C.greenLight:C.faint,cursor:"pointer",whiteSpace:"nowrap"}}>
             {tabLabel(t)}
@@ -934,6 +978,16 @@ export default function App({ user }) {
   const [tasksIndex, setTasksIndex] = useState(null);
   const [view,       setView]       = useState("landing");
   const [selected,   setSelected]   = useState(null);
+  const [disputes,   setDisputes]   = useState({});
+
+  // Fetch dispute classifications from the nightly cron output
+  function fetchDisputes() {
+    fetch("/api/dispute-classifications").then(r=>r.json()).then(data=>{
+      const map={};
+      for(const d of (data.results||[])) map[d.org_uuid]=d;
+      setDisputes(map);
+    }).catch(()=>{});
+  }
 
   function handleImport(newC,newU,newN,newT) {
     if (newC) { setCustomers(newC); setSelected(null); }
@@ -941,6 +995,7 @@ export default function App({ user }) {
     if (newN) setNpsIndex(p=>({...p,...newN}));
     if (newT) setTasksIndex(p=>p?{...newT,map:{...p.map,...newT.map}}:newT);
     setView("customers");
+    fetchDisputes();
   }
 
   const showLanding = !customers||view==="landing";
@@ -977,19 +1032,21 @@ export default function App({ user }) {
               const hasUsage=!!usageIndex[c.organizationUuid];
               const nps=getNpsSummary(c,npsIndex);
               const taskCount=getTasks(c,tasksIndex).length;
+              const d=disputes[c.organizationUuid];
               return (
                 <div key={i} onClick={()=>{setSelected(c);setView("detail");}}
                   style={{padding:"12px 20px",cursor:"pointer",borderBottom:`1px solid ${C.borderDim}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}
                   onMouseOver={e=>e.currentTarget.style.background="#161b28"}
                   onMouseOut={e=>e.currentTarget.style.background="transparent"}>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{marginBottom:4}}><CustName c={c}/></div>
+                    <div style={{marginBottom:4,display:"flex",alignItems:"center",gap:8}}><CustName c={c}/><DisputeBadge d={d}/></div>
                     <div style={{fontSize:11,color:C.faint,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                       <span>{c.invoices.length} inv</span>
                       {c.maxDaysOverdue>0&&<span style={{color:c.maxDaysOverdue>60?C.red:C.yellow}}>· {c.maxDaysOverdue}d overdue</span>}
                       {hasUsage&&<span style={{color:C.brand}}>· usage ✓</span>}
                       {taskCount>0&&<span style={{color:C.brand}}>· {taskCount} tasks</span>}
                       {c.accountManager&&<span>· {c.accountManager.replace("@pandadoc.com","")}</span>}
+                      {d&&<span style={{color:C.muted}}>· {d.summary}</span>}
                     </div>
                   </div>
                   <div style={{flexShrink:0,textAlign:"center",minWidth:52}}>
@@ -1012,9 +1069,9 @@ export default function App({ user }) {
             })}
           </div>
         )}
-        {!showLanding&&view==="hitlist"&&<HitList customers={customers} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex} onSelect={c=>{setSelected(c);setView("detail");}}/>}
+        {!showLanding&&view==="hitlist"&&<HitList customers={customers} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex} onSelect={c=>{setSelected(c);setView("detail");}} disputes={disputes}/>}
         {!showLanding&&view==="am"&&<AMBreakdown customers={customers}/>}
-        {!showLanding&&view==="detail"&&selected&&<CustomerDetail key={selected.name} selected={selected} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex} onBack={()=>setView("customers")}/>}
+        {!showLanding&&view==="detail"&&selected&&<CustomerDetail key={selected.name} selected={selected} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex} onBack={()=>setView("customers")} dispute={disputes[selected.organizationUuid]}/>}
       </div>
     </div>
   );
