@@ -21,6 +21,7 @@
 // Paste your AR360 artifact code here
 
 import { useState, useRef } from "react";
+import { signOut } from "next-auth/react";
 import Papa from "papaparse";
 
 const GMAIL_MCP = { type:"url", url:"https://gmail.mcp.claude.com/mcp", name:"gmail" };
@@ -1122,6 +1123,7 @@ export default function App({ user }) {
           ))}
           <div style={{flex:1}}/>
           <button onClick={()=>setView("landing")} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,margin:"0 12px",padding:"4px 10px",fontSize:11,color:C.faint,cursor:"pointer"}}>↑ Import more</button>
+          <button onClick={()=>signOut()} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,margin:"0 12px 0 0",padding:"4px 10px",fontSize:11,color:C.faint,cursor:"pointer"}}>Sign out</button>
         </div>
       )}
 
