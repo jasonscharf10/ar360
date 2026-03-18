@@ -128,7 +128,7 @@ function getUsageSummary(c, usageIndex) {
   const rows = usageIndex[c.organizationUuid];
   if (!rows||!rows.length) return null;
   const userIds = new Set(rows.map(r=>r["USER_ID"]).filter(Boolean));
-  const dates = rows.map(r=>r["USAGE_DATE"]).filter(Boolean).sort();
+  const dates = rows.map(r=>r["USAGE_DATE"]).filter(Boolean).sort((a,b)=>new Date(a).getTime()-new Date(b).getTime());
   const uc={},ka={};
   for (const r of rows) {
     const u=r["LEVEL_1"]||r["USECASE"]||"unknown"; uc[u]=(uc[u]||0)+1;
