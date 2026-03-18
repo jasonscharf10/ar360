@@ -603,7 +603,7 @@ function HitList({customers,usageIndex,npsIndex,tasksIndex,onSelect,disputes}) {
                     <div style={{fontSize:9,color:C.vfaint}}>/100</div>
                   </div>
                   {showRiskTip&&(
-                    <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,background:"#1e2736",border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 12px",minWidth:200,zIndex:100,textAlign:"left",boxShadow:"0 8px 24px #0008"}}>
+                    <div style={{position:"absolute",bottom:"calc(100% + 6px)",right:0,background:"#1e2736",border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 12px",minWidth:200,zIndex:100,textAlign:"left",boxShadow:"0 8px 24px #0008"}}>
                       <div style={{fontSize:10,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:1}}>Risk Breakdown</div>
                       {factors.map((f,fi)=>{
                         const fc=scoreColor(f.raw);
