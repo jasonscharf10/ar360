@@ -590,7 +590,7 @@ function HitList({customers,usageIndex,npsIndex,tasksIndex,onSelect,disputes}) {
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
                     <CustName c={c}/>
-                    {nps&&<NpsBadge score={nps.latest.score}/>}
+                    {nps&&<NpsBadge score={nps.avg}/>}
                   </div>
                   <div style={{fontSize:11,color:C.faint}}>{(c.accountManager||"Unassigned").replace("@pandadoc.com","")} · {c.invoices.length} inv · {c.maxDaysOverdue}d overdue</div>
                 </div>
@@ -696,7 +696,7 @@ function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute}
             {usageSummary&&<span style={{color:C.brand}}>· usage ✓</span>}
             {tasks.length>0&&<span style={{color:C.brand}}>· {tasks.length} tasks</span>}
             <DisputeBadge d={dispute}/>
-            {npsSummary&&<NpsBadge score={npsSummary.latest.score}/>}
+            {npsSummary&&<NpsBadge score={npsSummary.avg}/>}
           </div>
         </div>
       </div>
@@ -1149,10 +1149,10 @@ export default function App({ user }) {
                   </div>
                   <div style={{flexShrink:0,textAlign:"center",minWidth:52}}>
                     {nps?(
-                      <div style={{background:npsBg(nps.latest.score),border:`1px solid ${npsBorder(nps.latest.score)}`,borderRadius:8,padding:"4px 8px"}}>
+                      <div style={{background:npsBg(nps.avg),border:`1px solid ${npsBorder(nps.avg)}`,borderRadius:8,padding:"4px 8px"}}>
                         <div style={{fontSize:9,color:C.faint,textTransform:"uppercase",letterSpacing:0.5,marginBottom:1}}>NPS</div>
-                        <div style={{fontSize:16,fontWeight:800,color:npsColor(nps.latest.score),lineHeight:1}}>{nps.latest.score}</div>
-                        <div style={{fontSize:8,color:npsColor(nps.latest.score),marginTop:1}}>{npsLabel(nps.latest.score)}</div>
+                        <div style={{fontSize:16,fontWeight:800,color:npsColor(nps.avg),lineHeight:1}}>{nps.avg}</div>
+                        <div style={{fontSize:8,color:npsColor(nps.avg),marginTop:1}}>{npsLabel(nps.avg)}</div>
                       </div>
                     ):(
                       <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"4px 8px",opacity:0.4}}>
