@@ -263,6 +263,38 @@ async function generateBulkEmail(customer, usageSummary) {
   return parseJSON(text);
 }
 
+async function searchExecutives(customer) {
+  const company = customer.accountName || customer.name;
+  const text = await callClaude({
+    system:"Business intelligence researcher. Return ONLY raw JSON.",
+    userMsg:`Search LinkedIn and the web for finance/billing executives at "${company}".
+Find people with titles like CFO, VP Finance, Controller, Head of AP, Accounts Payable Manager, Director of Finance, or similar.
+Return: {"found":true,"executives":[{"name":"","title":"","linkedin_url":"","email_guess":"firstname.lastname@${customer.emailDomain||'company.com'}"}]}
+If none found: {"found":false,"executives":[]}
+Return up to 5 people, prioritize senior finance roles.`,
+    tools:[{type:"web_search_20250305",name:"web_search"}],
+    maxTokens:1200,
+  });
+  return parseJSON(text);
+}
+
+async function generateExecEmail(customer, exec, context) {
+  const text = await callClaude({
+    system:"Collections escalation specialist. Return ONLY raw JSON.",
+    userMsg:`Write a professional but firm escalation email to a finance executive about overdue invoices.
+Recipient: ${exec.name}, ${exec.title} at ${customer.accountName||customer.name}
+Outstanding: ${fmt(customer.totalOutstanding, customer.currency)}
+Days overdue: ${customer.maxDaysOverdue}
+Invoice count: ${customer.invoices.length}
+${context?`Context: ${context}`:""}
+
+The tone should be respectful but convey urgency. Reference that previous collection attempts through normal channels have been unsuccessful.
+Return: {"subject":"","body":""}`,
+    maxTokens:800,
+  });
+  return parseJSON(text);
+}
+
 async function searchNews(customer) {
   const text = await callClaude({
     system:"Business intelligence analyst. Return ONLY raw JSON.",
@@ -610,6 +642,8 @@ function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute}
   const [rec,setRec]=useState(null); const [recErr,setRecErr]=useState(null); const [recLoading,setRecLoading]=useState(false);
   const [emails,setEmails]=useState([]); const [emailLoading,setEmailLoading]=useState(false); const [emailErr,setEmailErr]=useState(null);
   const [news,setNews]=useState(null); const [newsLoading,setNewsLoading]=useState(false); const [newsErr,setNewsErr]=useState(null);
+  const [execs,setExecs]=useState(null); const [execsLoading,setExecsLoading]=useState(false); const [execsErr,setExecsErr]=useState(null);
+  const [execEmails,setExecEmails]=useState({}); const [execEmailLoading,setExecEmailLoading]=useState({});
   const [tab,setTab]=useState("recommendation");
 
   const usageSummary=getUsageSummary(selected,usageIndex);
@@ -631,9 +665,22 @@ function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute}
     try{setNews(await searchNews(selected));}
     catch(e){setNewsErr(e.message);}finally{setNewsLoading(false);}
   }
+  async function doSearchExecs() {
+    setExecsLoading(true);setExecsErr(null);
+    try{setExecs(await searchExecutives(selected));}
+    catch(e){setExecsErr(e.message);}finally{setExecsLoading(false);}
+  }
+  async function doGenExecEmail(exec,i) {
+    setExecEmailLoading(p=>({...p,[i]:true}));
+    try{
+      const context=dispute?`Dispute: ${dispute.dispute_category.replace(/_/g," ")} — ${dispute.summary}`:"";
+      const email=await generateExecEmail(selected,exec,context);
+      setExecEmails(p=>({...p,[i]:email}));
+    }catch{}finally{setExecEmailLoading(p=>({...p,[i]:false}));}
+  }
 
-  const tabs=["recommendation","playbook","email","invoices","tasks","usage","nps","news"];
-  const tabLabel=t=>({recommendation:"Recommendation",playbook:"Playbook",email:"Draft Email",invoices:"Invoices",tasks:`Tasks${tasks.length?` (${tasks.length})`:""}`,usage:"Usage",nps:`NPS${npsSummary?` (${npsSummary.count})`:""}`,news:"🔍 News"}[t]);
+  const tabs=["recommendation","playbook","email","invoices","tasks","usage","nps","executives","news"];
+  const tabLabel=t=>({recommendation:"Recommendation",playbook:"Playbook",email:"Draft Email",invoices:"Invoices",tasks:`Tasks${tasks.length?` (${tasks.length})`:""}`,usage:"Usage",nps:`NPS${npsSummary?` (${npsSummary.count})`:""}`,executives:"Executives",news:"🔍 News"}[t]);
 
   return (
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
@@ -925,6 +972,55 @@ function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute}
                 {r.comment&&<div style={{fontSize:13,color:C.muted,lineHeight:1.6,fontStyle:"italic"}}>"{r.comment}"</div>}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Executives */}
+        {tab==="executives"&&(
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            {!execs&&!execsLoading&&(
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:12,padding:"30px 0"}}>
+                <div style={{fontSize:13,color:C.faint}}>Search for finance executives at</div>
+                <CustName c={{name:selected.accountName||selected.name,accountName:selected.accountName&&selected.accountName!==selected.name?selected.name:""}} size="lg"/>
+                <div style={{fontSize:11,color:C.vfaint,textAlign:"center",maxWidth:400}}>Finds CFOs, VP Finance, Controllers, AP Managers on LinkedIn and drafts escalation emails</div>
+                <button onClick={doSearchExecs} style={{background:`linear-gradient(135deg,${C.brand},${C.brandDark})`,border:"none",borderRadius:8,padding:"8px 20px",fontSize:13,fontWeight:600,color:"#fff",cursor:"pointer",marginTop:4}}>Search for executives</button>
+              </div>
+            )}
+            {execsLoading&&<div style={{display:"flex",alignItems:"center",gap:10,padding:"30px 0",justifyContent:"center",fontSize:13,color:C.faint}}><Spinner/>Searching LinkedIn & web…</div>}
+            {execsErr&&<div style={{fontSize:13,color:C.red}}>⚠ {execsErr}</div>}
+            {execs&&!execsLoading&&(
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {!execs.found||!execs.executives?.length
+                  ?<div style={{fontSize:13,color:C.vfaint,textAlign:"center",padding:"20px 0"}}>No finance executives found.</div>
+                  :execs.executives.map((exec,i)=>(
+                    <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+                      <div style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
+                        <div style={{width:36,height:36,borderRadius:"50%",background:`linear-gradient(135deg,${C.brand},${C.brandDark})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,color:"#fff",flexShrink:0}}>{(exec.name||"?")[0]}</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:C.text}}>{exec.name}</div>
+                          <div style={{fontSize:11,color:C.faint}}>{exec.title}</div>
+                          {exec.email_guess&&<div style={{fontSize:11,color:C.muted,fontFamily:"monospace"}}>{exec.email_guess}</div>}
+                        </div>
+                        <div style={{display:"flex",gap:6,flexShrink:0}}>
+                          {exec.linkedin_url&&<a href={exec.linkedin_url} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",fontSize:11,color:C.blue,cursor:"pointer",textDecoration:"none"}}>LinkedIn</a>}
+                          {!execEmails[i]&&!execEmailLoading[i]&&<button onClick={()=>doGenExecEmail(exec,i)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",fontSize:11,color:C.brand,cursor:"pointer"}}>Draft email</button>}
+                          {execEmailLoading[i]&&<span style={{fontSize:11,color:C.faint,display:"flex",alignItems:"center",gap:4}}><Spinner size={12}/>Drafting…</span>}
+                        </div>
+                      </div>
+                      {execEmails[i]&&(
+                        <div style={{borderTop:`1px solid ${C.border}`,padding:"10px 16px",background:C.surfaceDim}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                            <div style={{fontSize:11,fontWeight:600,color:C.brand}}>{execEmails[i].subject}</div>
+                            <CopyBtn text={`To: ${exec.email_guess||""}\nSubject: ${execEmails[i].subject}\n\n${execEmails[i].body}`}/>
+                          </div>
+                          <div style={{fontSize:12,color:C.muted,lineHeight:1.6,whiteSpace:"pre-wrap"}}>{execEmails[i].body}</div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                <button onClick={doSearchExecs} style={{alignSelf:"flex-start",background:"none",border:`1px solid ${C.border}`,borderRadius:6,padding:"4px 10px",fontSize:11,color:C.faint,cursor:"pointer"}}>↻ Search again</button>
+              </div>
+            )}
           </div>
         )}
 
