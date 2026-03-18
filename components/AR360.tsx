@@ -232,11 +232,14 @@ function parseJSON(text) {
 async function fetchEmails(customer) {
   const nums = customer.invoices.map(i=>i.number).filter(Boolean).slice(0,5);
   const q = `(to:${GROUP_INBOX} OR from:${GROUP_INBOX}) AND ("${customer.name}"${nums.length?` OR ${nums.map(n=>`"${n}"`).join(" OR ")}`:"" })`;
-  const text = await Promise.race([
-    callClaude({system:"Gmail agent. Return ONLY raw JSON.",userMsg:`Search Gmail: ${q}\nReturn up to 5 recent emails as:\n[{"date":"","from":"","to":"","subject":"","snippet":"","direction":"inbound"|"outbound"}]\nIf none: []`,mcpServers:[GMAIL_MCP]}),
-    new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),60000)),
-  ]);
-  try { return parseJSON(text); } catch { return []; }
+  const res = await fetch("/api/gmail-search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query: q, maxResults: 5 }),
+  });
+  if (!res.ok) throw new Error("failed");
+  const data = await res.json();
+  return data.emails || [];
 }
 
 async function generateRec({customer,emails,usageSummary,npsSummary,tasks}) {
