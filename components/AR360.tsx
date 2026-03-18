@@ -583,6 +583,7 @@ function HitList({customers,usageIndex,npsIndex,tasksIndex,onSelect,disputes}) {
           const nps=getNpsSummary(c,npsIndex);
           const {total,factors}=c._risk;
           const sc=scoreColor(total);
+          const [showRiskTip,setShowRiskTip]=useState(false);
           return (
             <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
               <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px"}}>
@@ -594,37 +595,39 @@ function HitList({customers,usageIndex,npsIndex,tasksIndex,onSelect,disputes}) {
                   </div>
                   <div style={{fontSize:11,color:C.faint}}>{(c.accountManager||"Unassigned").replace("@pandadoc.com","")} · {c.invoices.length} inv · {c.maxDaysOverdue}d overdue</div>
                 </div>
-                <div style={{position:"relative",textAlign:"center",flexShrink:0}} className="risk-tooltip-wrap">
+                <div style={{position:"relative",textAlign:"center",flexShrink:0}}
+                  onMouseEnter={()=>setShowRiskTip(true)} onMouseLeave={()=>setShowRiskTip(false)}>
                   <div style={{background:C.surfaceDim,border:`1px solid ${sc}44`,borderRadius:8,padding:"5px 10px",cursor:"default"}}>
                     <div style={{fontSize:10,color:C.faint,marginBottom:1}}>Risk</div>
                     <div style={{fontSize:18,fontWeight:800,color:sc,lineHeight:1}}>{total}</div>
                     <div style={{fontSize:9,color:C.vfaint}}>/100</div>
                   </div>
-                  <style>{`.risk-tooltip-wrap:hover .risk-tooltip{display:block}`}</style>
-                  <div className="risk-tooltip" style={{display:"none",position:"absolute",top:"calc(100% + 6px)",right:0,background:"#1e2736",border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 12px",minWidth:200,zIndex:100,textAlign:"left",boxShadow:"0 8px 24px #0008"}}>
-                    <div style={{fontSize:10,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:1}}>Risk Breakdown</div>
-                    {factors.map((f,fi)=>{
-                      const fc=scoreColor(f.raw);
-                      const pct=f.noData?50:Math.round(f.raw);
-                      const weights={0:40,1:25,2:20,3:15,4:0};
-                      return (
-                        <div key={fi} style={{marginBottom:fi<factors.length-1?8:0}}>
-                          <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                            <span style={{fontSize:11,color:C.muted}}>{f.name}</span>
-                            <span style={{fontSize:11,fontWeight:700,color:f.noData?C.vfaint:fc}}>{f.noData?"no data":pct}</span>
+                  {showRiskTip&&(
+                    <div style={{position:"absolute",top:"calc(100% + 6px)",right:0,background:"#1e2736",border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 12px",minWidth:200,zIndex:100,textAlign:"left",boxShadow:"0 8px 24px #0008"}}>
+                      <div style={{fontSize:10,fontWeight:700,color:C.muted,marginBottom:8,textTransform:"uppercase",letterSpacing:1}}>Risk Breakdown</div>
+                      {factors.map((f,fi)=>{
+                        const fc=scoreColor(f.raw);
+                        const pct=f.noData?50:Math.round(f.raw);
+                        const weights=[40,25,20,15,0];
+                        return (
+                          <div key={fi} style={{marginBottom:fi<factors.length-1?8:0}}>
+                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                              <span style={{fontSize:11,color:C.muted}}>{f.name}</span>
+                              <span style={{fontSize:11,fontWeight:700,color:f.noData?C.vfaint:fc}}>{f.noData?"no data":pct}</span>
+                            </div>
+                            <div style={{height:3,background:C.border,borderRadius:2,overflow:"hidden"}}>
+                              <div style={{width:`${pct}%`,height:"100%",background:f.noData?"#374151":fc,opacity:f.noData?0.4:1}}/>
+                            </div>
+                            {weights[fi]!==undefined&&<div style={{fontSize:9,color:C.vfaint,marginTop:1}}>weight: {weights[fi]}%</div>}
                           </div>
-                          <div style={{height:3,background:C.border,borderRadius:2,overflow:"hidden"}}>
-                            <div style={{width:`${pct}%`,height:"100%",background:f.noData?"#374151":fc,opacity:f.noData?0.4:1}}/>
-                          </div>
-                          {weights[fi]!==undefined&&<div style={{fontSize:9,color:C.vfaint,marginTop:1}}>weight: {weights[fi]}%</div>}
-                        </div>
-                      );
-                    })}
-                    <div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between"}}>
-                      <span style={{fontSize:11,color:C.muted}}>Total</span>
-                      <span style={{fontSize:12,fontWeight:800,color:sc}}>{total}/100</span>
+                        );
+                      })}
+                      <div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between"}}>
+                        <span style={{fontSize:11,color:C.muted}}>Total</span>
+                        <span style={{fontSize:12,fontWeight:800,color:sc}}>{total}/100</span>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
                 <div style={{textAlign:"right",flexShrink:0}}>
                   <div style={{fontSize:14,fontWeight:800,color:C.text}}>{fmt(c.totalOutstanding,c.currency)}</div>
