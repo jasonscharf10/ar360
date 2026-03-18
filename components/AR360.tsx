@@ -1078,6 +1078,10 @@ export default function App({ user }) {
   const [view,       setView]       = useState("landing");
   const [selected,   setSelected]   = useState(null);
   const [disputes,   setDisputes]   = useState({});
+  const [custSearch, setCustSearch] = useState("");
+  const [custDisputeFilter, setCustDisputeFilter] = useState("");
+  const [custOverdueFilter, setCustOverdueFilter] = useState("");
+  const [custSortBy, setCustSortBy] = useState("amount");
 
   // Fetch dispute classifications from the nightly cron output
   function fetchDisputes() {
@@ -1126,8 +1130,52 @@ export default function App({ user }) {
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
         {showLanding&&<LandingScreen onImport={handleImport}/>}
         {!showLanding&&view==="customers"&&(
-          <div style={{flex:1,overflowY:"auto"}}>
-            {customers.map((c,i)=>{
+          <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            {/* Search + Filter bar */}
+            <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.border}`,background:C.surfaceDim,display:"flex",gap:8,alignItems:"center",flexShrink:0,flexWrap:"wrap"}}>
+              <input
+                value={custSearch} onChange={e=>setCustSearch(e.target.value)}
+                placeholder="Search customers…"
+                style={{flex:1,minWidth:160,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px",fontSize:12,color:C.text,outline:"none"}}
+              />
+              <select value={custDisputeFilter} onChange={e=>setCustDisputeFilter(e.target.value)}
+                style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 8px",fontSize:12,color:C.text,cursor:"pointer"}}>
+                <option value="">All dispute types</option>
+                {Object.entries(DISPUTE_META).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+              </select>
+              <select value={custOverdueFilter} onChange={e=>setCustOverdueFilter(e.target.value)}
+                style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 8px",fontSize:12,color:C.text,cursor:"pointer"}}>
+                <option value="">All overdue</option>
+                <option value="30">30+ days</option>
+                <option value="60">60+ days</option>
+                <option value="90">90+ days</option>
+              </select>
+              <select value={custSortBy} onChange={e=>setCustSortBy(e.target.value)}
+                style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 8px",fontSize:12,color:C.text,cursor:"pointer"}}>
+                <option value="amount">Sort: Amount</option>
+                <option value="overdue">Sort: Days Overdue</option>
+                <option value="name">Sort: Name</option>
+                <option value="risk">Sort: Risk</option>
+              </select>
+              {(custSearch||custDisputeFilter||custOverdueFilter)&&(
+                <button onClick={()=>{setCustSearch("");setCustDisputeFilter("");setCustOverdueFilter("");}}
+                  style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px",fontSize:12,color:C.faint,cursor:"pointer",whiteSpace:"nowrap"}}>
+                  Clear
+                </button>
+              )}
+            </div>
+            <div style={{flex:1,overflowY:"auto"}}>
+            {(()=>{
+              let list=[...customers];
+              if(custSearch){const q=custSearch.toLowerCase();list=list.filter(c=>(c.name||"").toLowerCase().includes(q)||(c.accountName||"").toLowerCase().includes(q)||(c.accountManager||"").toLowerCase().includes(q));}
+              if(custDisputeFilter) list=list.filter(c=>disputes[c.organizationUuid]?.dispute_category===custDisputeFilter);
+              if(custOverdueFilter) list=list.filter(c=>c.maxDaysOverdue>=parseInt(custOverdueFilter));
+              if(custSortBy==="overdue") list.sort((a,b)=>b.maxDaysOverdue-a.maxDaysOverdue);
+              else if(custSortBy==="name") list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+              else if(custSortBy==="risk") list.sort((a,b)=>computeRiskScore(b,usageIndex,npsIndex,disputes).total-computeRiskScore(a,usageIndex,npsIndex,disputes).total);
+              else list.sort((a,b)=>b.totalOutstanding-a.totalOutstanding);
+              if(!list.length) return <div style={{fontSize:13,color:C.vfaint,textAlign:"center",padding:"40px 0"}}>No customers match your filters.</div>;
+              return list.map((c,i)=>{
               const hasUsage=!!usageIndex[c.organizationUuid];
               const nps=getNpsSummary(c,npsIndex);
               const taskCount=getTasks(c,tasksIndex).length;
@@ -1164,7 +1212,9 @@ export default function App({ user }) {
                   <div style={{fontSize:14,fontWeight:700,color:c.maxDaysOverdue>60?C.red:C.text,flexShrink:0,minWidth:80,textAlign:"right"}}>{fmt(c.totalOutstanding,c.currency)}</div>
                 </div>
               );
-            })}
+              });
+            })()}
+            </div>
           </div>
         )}
         {!showLanding&&view==="hitlist"&&<HitList customers={customers} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex} onSelect={c=>{setSelected(c);setView("detail");}} disputes={disputes}/>}
