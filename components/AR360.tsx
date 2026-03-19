@@ -243,22 +243,41 @@ async function fetchEmails(customer) {
   return data.emails || [];
 }
 
-async function generateRec({customer,emails,usageSummary,npsSummary,tasks}) {
+const DISPUTE_TONE = {
+  enterprise_ap_delay:           "Tone: polite and patient. They intend to pay — just a gentle nudge to expedite the internal approval.",
+  no_dispute_detected:           "Tone: friendly and professional. No blockers — just a standard reminder.",
+  payment_method_failure:        "Tone: helpful and solution-focused. Offer a fresh payment link. Avoid blame.",
+  auto_renewal_confusion:        "Tone: empathetic and educational. Clarify the auto-renewal terms calmly without being defensive.",
+  seat_pricing_dispute:          "Tone: collaborative. Acknowledge the pricing conversation is in progress and offer to unblock payment while it resolves.",
+  billing_error:                 "Tone: apologetic and action-oriented. Acknowledge the error, confirm it is being fixed, and provide a corrected timeline.",
+  international_payment_barrier: "Tone: helpful and practical. Offer wire instructions or compliance docs proactively.",
+  product_dissatisfaction:       "Tone: empathetic. Acknowledge their frustration, loop in Customer Success, and separate the relationship conversation from the payment obligation.",
+  cancellation_dispute:          "Tone: firm but respectful. Reference the contract terms clearly. Avoid escalating language but be direct about the outstanding obligation.",
+  insufficient_data:             "Tone: professional and neutral. Standard collections tone.",
+};
+
+function disputeToneHint(dispute) {
+  if (!dispute || dispute.dispute_category === "insufficient_data") return "";
+  const tone = DISPUTE_TONE[dispute.dispute_category] || "";
+  return `\nDispute context: ${dispute.dispute_category.replace(/_/g," ")} — ${dispute.summary}\n${tone}`;
+}
+
+async function generateRec({customer,emails,usageSummary,npsSummary,tasks,dispute}) {
   const invs = customer.invoices.map(i=>`${i.number}: ${fmt(i.outstanding,customer.currency)} ${i.daysOverdue}d overdue`).join("\n");
   const ems  = emails.length ? emails.map(e=>`[${e.direction}] ${e.date} | ${e.subject} | ${e.snippet}`).join("\n") : "None";
   const text = await callClaude({
     system:"Collections intelligence analyst. Return ONLY raw JSON.",
-    userMsg:`Customer: ${customer.name}\nAM: ${customer.accountManager||"?"}\nOutstanding: ${fmt(customer.totalOutstanding,customer.currency)} / ${customer.maxDaysOverdue}d overdue\n\nInvoices:\n${invs}\n\nEmails:\n${ems}\n\nTasks:\n${fmtTasks(tasks)}\n\nUsage: ${fmtUsage(usageSummary)}\nNPS: ${fmtNps(npsSummary)}\n\nReturn exactly:\n{"riskScore":"High"|"Medium"|"Low","riskReasoning":"2-3 sentences","recommendedAction":"short title","actionReasoning":"1-2 sentences","playbook":[{"step":1,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"},{"step":2,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"},{"step":3,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"}],"draftEmail":{"subject":"","body":""}}`,
+    userMsg:`Customer: ${customer.name}\nAM: ${customer.accountManager||"?"}\nOutstanding: ${fmt(customer.totalOutstanding,customer.currency)} / ${customer.maxDaysOverdue}d overdue\n\nInvoices:\n${invs}\n\nEmails:\n${ems}\n\nTasks:\n${fmtTasks(tasks)}\n\nUsage: ${fmtUsage(usageSummary)}\nNPS: ${fmtNps(npsSummary)}${disputeToneHint(dispute)}\n\nReturn exactly:\n{"riskScore":"High"|"Medium"|"Low","riskReasoning":"2-3 sentences","recommendedAction":"short title","actionReasoning":"1-2 sentences","playbook":[{"step":1,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"},{"step":2,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"},{"step":3,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"}],"draftEmail":{"subject":"","body":""}}`,
     maxTokens:1500,
   });
   return parseJSON(text);
 }
 
-async function generateBulkEmail(customer, usageSummary) {
+async function generateBulkEmail(customer, usageSummary, dispute) {
   const invs = customer.invoices.map(i=>`${i.number}: ${fmt(i.outstanding,customer.currency)} ${i.daysOverdue}d overdue`).join("\n");
   const text = await callClaude({
     system:"Collections specialist. Return ONLY raw JSON.",
-    userMsg:`Write a professional collections email.\nCustomer: ${customer.name}\nOutstanding: ${fmt(customer.totalOutstanding,customer.currency)} / ${customer.maxDaysOverdue}d overdue\nInvoices:\n${invs}\nUsage: ${fmtUsage(usageSummary)}\nReturn: {"subject":"","body":""}`,
+    userMsg:`Write a professional collections email.\nCustomer: ${customer.name}\nOutstanding: ${fmt(customer.totalOutstanding,customer.currency)} / ${customer.maxDaysOverdue}d overdue\nInvoices:\n${invs}\nUsage: ${fmtUsage(usageSummary)}${disputeToneHint(dispute)}\nReturn: {"subject":"","body":""}`,
     maxTokens:600,
   });
   return parseJSON(text);
@@ -551,7 +570,7 @@ function HitList({customers,usageIndex,npsIndex,tasksIndex,onSelect,disputes}) {
     const res={};
     for(let i=0;i<ranked.length;i++){
       const c=ranked[i];
-      try{res[c.name]=await generateBulkEmail(c,getUsageSummary(c,usageIndex));}catch(e){res[c.name]={subject:"Error",body:e.message};}
+      try{res[c.name]=await generateBulkEmail(c,getUsageSummary(c,usageIndex),disputes?.[c.organizationUuid]);}catch(e){res[c.name]={subject:"Error",body:e.message};}
       setProgress(i+1);setEmails({...res});
     }
     setGenerating(false);
@@ -653,7 +672,7 @@ function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute}
 
   async function doGenerate() {
     setRecLoading(true);setRecErr(null);
-    try{setRec(await generateRec({customer:selected,emails,usageSummary,npsSummary,tasks}));}
+    try{setRec(await generateRec({customer:selected,emails,usageSummary,npsSummary,tasks,dispute}));}
     catch(e){setRecErr(e.message);}finally{setRecLoading(false);}
   }
   async function doSearchEmails() {
