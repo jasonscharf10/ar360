@@ -1101,6 +1101,7 @@ export default function App({ user }) {
   const [custSearch, setCustSearch] = useState("");
   const [custDisputeFilter, setCustDisputeFilter] = useState("");
   const [custOverdueFilter, setCustOverdueFilter] = useState("");
+  const [custAMFilter, setCustAMFilter] = useState("");
   const [custSortBy, setCustSortBy] = useState("amount");
 
   // Fetch dispute classifications from the nightly cron output
@@ -1171,6 +1172,13 @@ export default function App({ user }) {
                 <option value="60">60+ days</option>
                 <option value="90">90+ days</option>
               </select>
+              <select value={custAMFilter} onChange={e=>setCustAMFilter(e.target.value)}
+                style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 8px",fontSize:12,color:C.text,cursor:"pointer"}}>
+                <option value="">All AMs</option>
+                {[...new Set(customers.map(c=>c.accountManager).filter(Boolean))].sort().map(am=>(
+                  <option key={am} value={am}>{am.replace("@pandadoc.com","")}</option>
+                ))}
+              </select>
               <select value={custSortBy} onChange={e=>setCustSortBy(e.target.value)}
                 style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 8px",fontSize:12,color:C.text,cursor:"pointer"}}>
                 <option value="amount">Sort: Amount</option>
@@ -1178,8 +1186,8 @@ export default function App({ user }) {
                 <option value="name">Sort: Name</option>
                 <option value="risk">Sort: Risk</option>
               </select>
-              {(custSearch||custDisputeFilter||custOverdueFilter)&&(
-                <button onClick={()=>{setCustSearch("");setCustDisputeFilter("");setCustOverdueFilter("");}}
+              {(custSearch||custDisputeFilter||custOverdueFilter||custAMFilter)&&(
+                <button onClick={()=>{setCustSearch("");setCustDisputeFilter("");setCustOverdueFilter("");setCustAMFilter("");}}
                   style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px",fontSize:12,color:C.faint,cursor:"pointer",whiteSpace:"nowrap"}}>
                   Clear
                 </button>
@@ -1190,6 +1198,7 @@ export default function App({ user }) {
               let list=[...customers];
               if(custSearch){const q=custSearch.toLowerCase();list=list.filter(c=>(c.name||"").toLowerCase().includes(q)||(c.accountName||"").toLowerCase().includes(q)||(c.accountManager||"").toLowerCase().includes(q));}
               if(custDisputeFilter) list=list.filter(c=>disputes[c.organizationUuid]?.dispute_category===custDisputeFilter);
+              if(custAMFilter) list=list.filter(c=>c.accountManager===custAMFilter);
               if(custOverdueFilter) list=list.filter(c=>c.maxDaysOverdue>=parseInt(custOverdueFilter));
               if(custSortBy==="overdue") list.sort((a,b)=>b.maxDaysOverdue-a.maxDaysOverdue);
               else if(custSortBy==="name") list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
