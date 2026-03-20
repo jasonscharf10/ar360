@@ -1,12 +1,13 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const cronSecret = req.headers.get('x-cron-secret')
   const session = await getServerSession(authOptions)
-  if (!session) {
+  if (!session && cronSecret !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
