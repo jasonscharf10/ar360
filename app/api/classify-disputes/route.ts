@@ -109,6 +109,8 @@ export async function POST(req: NextRequest) {
     classified: results.length,
     errors: errors.length,
     error_details: errors,
+    generated_at: new Date().toISOString(),
+    results,
   })
 }
 
