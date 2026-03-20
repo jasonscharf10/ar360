@@ -176,6 +176,15 @@ You are an accounts receivable analyst. Your job is to classify why a customer h
 their invoice based on recent communication from their Salesforce activity log and/or emails
 to the AR inbox.
 
+Today's date is ${new Date().toISOString().slice(0, 10)}.
+
+IMPORTANT — STALE PROMISES:
+Each Salesforce task shows how many days ago it was logged. If a task from more than 14 days ago
+says the customer "will pay next week", "will pay by end of month", or similar — and the invoice
+is still unpaid — treat this as a BROKEN PROMISE, not a positive signal. Adjust collection_probability
+downward and increase the risk_modifier accordingly. A promise made 30+ days ago with no payment
+is a significant red flag.
+
 Respond ONLY with a valid JSON object — no markdown, no preamble, no explanation.
 The JSON must exactly match this shape:
 
@@ -240,7 +249,9 @@ function buildClassificationPrompt(
   if (sfTasks.length > 0) {
     lines.push('SALESFORCE ACTIVITY (most recent first):')
     sfTasks.slice(0, 5).forEach(t => {
-      lines.push(`  [${t.date}] ${t.type}: ${t.description}`)
+      const age = daysSince(t.date)
+      const ageLabel = age === 0 ? 'today' : age === 1 ? '1 day ago' : `${age} days ago`
+      lines.push(`  [${t.date} — ${ageLabel}] ${t.type}: ${t.description}`)
     })
     lines.push('')
   }
