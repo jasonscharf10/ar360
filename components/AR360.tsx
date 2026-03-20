@@ -279,22 +279,29 @@ function toneHint(dispute, npsSummary, usageSummary) {
   return parts.length ? "\n\n" + parts.join("\n\n") : "";
 }
 
-async function generateRec({customer,emails,usageSummary,npsSummary,tasks,dispute}) {
+function senderHint(sender, am) {
+  const arName = sender?.name || sender?.email?.split("@")[0] || "AR Team";
+  const amName = am ? am.replace("@pandadoc.com","") : null;
+  const cc = amName ? `CC: ${am}` : "";
+  return `\n\nSender: Sign the email from ${arName} (Accounts Receivable).${cc ? ` ${cc} (Account Manager, for awareness).` : ""} Do NOT sign from the Account Manager.`;
+}
+
+async function generateRec({customer,emails,usageSummary,npsSummary,tasks,dispute,sender}) {
   const invs = customer.invoices.map(i=>`${i.number}: ${fmt(i.outstanding,customer.currency)} ${i.daysOverdue}d overdue`).join("\n");
   const ems  = emails.length ? emails.map(e=>`[${e.direction}] ${e.date} | ${e.subject} | ${e.snippet}`).join("\n") : "None";
   const text = await callClaude({
     system:"Collections intelligence analyst. Return ONLY raw JSON.",
-    userMsg:`Customer: ${customer.name}\nAM: ${customer.accountManager||"?"}\nOutstanding: ${fmt(customer.totalOutstanding,customer.currency)} / ${customer.maxDaysOverdue}d overdue\n\nInvoices:\n${invs}\n\nEmails:\n${ems}\n\nTasks:\n${fmtTasks(tasks)}\n\nUsage: ${fmtUsage(usageSummary)}\nNPS: ${fmtNps(npsSummary)}${toneHint(dispute,npsSummary,usageSummary)}\n\nReturn exactly:\n{"riskScore":"High"|"Medium"|"Low","riskReasoning":"2-3 sentences","recommendedAction":"short title","actionReasoning":"1-2 sentences","playbook":[{"step":1,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"},{"step":2,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"},{"step":3,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"}],"draftEmail":{"subject":"","body":""}}`,
+    userMsg:`Customer: ${customer.name}\nAM: ${customer.accountManager||"?"}\nOutstanding: ${fmt(customer.totalOutstanding,customer.currency)} / ${customer.maxDaysOverdue}d overdue\n\nInvoices:\n${invs}\n\nEmails:\n${ems}\n\nTasks:\n${fmtTasks(tasks)}\n\nUsage: ${fmtUsage(usageSummary)}\nNPS: ${fmtNps(npsSummary)}${toneHint(dispute,npsSummary,usageSummary)}${senderHint(sender,customer.accountManager)}\n\nReturn exactly:\n{"riskScore":"High"|"Medium"|"Low","riskReasoning":"2-3 sentences","recommendedAction":"short title","actionReasoning":"1-2 sentences","playbook":[{"step":1,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"},{"step":2,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"},{"step":3,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"}],"draftEmail":{"subject":"","body":""}}`,
     maxTokens:1500,
   });
   return parseJSON(text);
 }
 
-async function generateBulkEmail(customer, usageSummary, dispute) {
+async function generateBulkEmail(customer, usageSummary, dispute, sender) {
   const invs = customer.invoices.map(i=>`${i.number}: ${fmt(i.outstanding,customer.currency)} ${i.daysOverdue}d overdue`).join("\n");
   const text = await callClaude({
     system:"Collections specialist. Return ONLY raw JSON.",
-    userMsg:`Write a professional collections email.\nCustomer: ${customer.name}\nOutstanding: ${fmt(customer.totalOutstanding,customer.currency)} / ${customer.maxDaysOverdue}d overdue\nInvoices:\n${invs}\nUsage: ${fmtUsage(usageSummary)}${toneHint(dispute,null,usageSummary)}\nReturn: {"subject":"","body":""}`,
+    userMsg:`Write a professional collections email.\nCustomer: ${customer.name}\nOutstanding: ${fmt(customer.totalOutstanding,customer.currency)} / ${customer.maxDaysOverdue}d overdue\nInvoices:\n${invs}\nUsage: ${fmtUsage(usageSummary)}${toneHint(dispute,null,usageSummary)}${senderHint(sender,customer.accountManager)}\nReturn: {"subject":"","body":""}`,
     maxTokens:600,
   });
   return parseJSON(text);
@@ -576,7 +583,7 @@ function AMBreakdown({customers}) {
 }
 
 // ── Hit List ──────────────────────────────────────────────────────────────────
-function HitList({customers,usageIndex,npsIndex,tasksIndex,onSelect,disputes}) {
+function HitList({customers,usageIndex,npsIndex,tasksIndex,onSelect,disputes,user}) {
   const [emails,setEmails]=useState({});
   const [generating,setGenerating]=useState(false);
   const [progress,setProgress]=useState(0);
@@ -587,7 +594,7 @@ function HitList({customers,usageIndex,npsIndex,tasksIndex,onSelect,disputes}) {
     const res={};
     for(let i=0;i<ranked.length;i++){
       const c=ranked[i];
-      try{res[c.name]=await generateBulkEmail(c,getUsageSummary(c,usageIndex),disputes?.[c.organizationUuid]);}catch(e){res[c.name]={subject:"Error",body:e.message};}
+      try{res[c.name]=await generateBulkEmail(c,getUsageSummary(c,usageIndex),disputes?.[c.organizationUuid],user);}catch(e){res[c.name]={subject:"Error",body:e.message};}
       setProgress(i+1);setEmails({...res});
     }
     setGenerating(false);
@@ -675,7 +682,7 @@ function HitList({customers,usageIndex,npsIndex,tasksIndex,onSelect,disputes}) {
 }
 
 // ── Customer Detail ───────────────────────────────────────────────────────────
-function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute}) {
+function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute,user}) {
   const [rec,setRec]=useState(null); const [recErr,setRecErr]=useState(null); const [recLoading,setRecLoading]=useState(false);
   const [emails,setEmails]=useState([]); const [emailLoading,setEmailLoading]=useState(false); const [emailErr,setEmailErr]=useState(null);
   const [news,setNews]=useState(null); const [newsLoading,setNewsLoading]=useState(false); const [newsErr,setNewsErr]=useState(null);
@@ -689,7 +696,7 @@ function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute}
 
   async function doGenerate() {
     setRecLoading(true);setRecErr(null);
-    try{setRec(await generateRec({customer:selected,emails,usageSummary,npsSummary,tasks,dispute}));}
+    try{setRec(await generateRec({customer:selected,emails,usageSummary,npsSummary,tasks,dispute,sender:user}));}
     catch(e){setRecErr(e.message);}finally{setRecLoading(false);}
   }
   async function doSearchEmails() {
@@ -1264,9 +1271,9 @@ export default function App({ user }) {
             </div>
           </div>
         )}
-        {!showLanding&&view==="hitlist"&&<HitList customers={customers} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex} onSelect={c=>{setSelected(c);setView("detail");}} disputes={disputes}/>}
+        {!showLanding&&view==="hitlist"&&<HitList customers={customers} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex} onSelect={c=>{setSelected(c);setView("detail");}} disputes={disputes} user={user}/>}
         {!showLanding&&view==="am"&&<AMBreakdown customers={customers}/>}
-        {!showLanding&&view==="detail"&&selected&&<CustomerDetail key={selected.name} selected={selected} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex} onBack={()=>setView("customers")} dispute={disputes[selected.organizationUuid]}/>}
+        {!showLanding&&view==="detail"&&selected&&<CustomerDetail key={selected.name} selected={selected} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex} onBack={()=>setView("customers")} dispute={disputes[selected.organizationUuid]} user={user}/>}
       </div>
     </div>
   );
