@@ -256,8 +256,33 @@ const DISPUTE_TONE = {
   insufficient_data:             "Tone: professional and neutral. Standard collections tone.",
 };
 
-function toneHint(dispute, npsSummary, usageSummary) {
+function escalationTier(customer, dispute, tasks) {
+  const days = customer.maxDaysOverdue || 0;
+  const taskCount = tasks?.length || 0;
+  const hasbrokenPromise = dispute?.summary && /next week|end of month|end of week|by friday|will pay|processing/i.test(dispute.summary) && days > 30;
+  const isUnresponsive = taskCount >= 3 && days > 60;
+  const isCancellationOrDissatisfaction = ["cancellation_dispute","product_dissatisfaction"].includes(dispute?.dispute_category);
+
+  if (days >= 120 || (days >= 90 && hasbrokenPromise)) {
+    return `ESCALATION: FINAL NOTICE. This account is ${days} days overdue${hasbrokenPromise ? " with broken payment promises" : ""}. Drop all pleasantries. The email must be direct, firm, and make clear that further non-payment will result in escalation to legal/collections. No warm opening. No soft language.`;
+  }
+  if (isUnresponsive && days >= 60) {
+    return `ESCALATION: NON-RESPONSIVE. ${taskCount} follow-up attempts with no resolution after ${days} days. Firm and direct tone — acknowledge previous attempts explicitly, state that this is a final reminder before escalation. Skip friendly preamble.`;
+  }
+  if (isCancellationOrDissatisfaction && days >= 60) {
+    return `ESCALATION: DISPUTED ACCOUNT. Customer disputes the charge (${dispute.dispute_category.replace(/_/g," ")}). Firm but professional — reference the contract terms, do not apologize for the invoice, state the legal obligation clearly.`;
+  }
+  return null;
+}
+
+function toneHint(dispute, npsSummary, usageSummary, customer?, tasks?) {
   const parts = [];
+
+  // Escalation overrides everything else
+  const escalation = customer ? escalationTier(customer, dispute, tasks) : null;
+  if (escalation) {
+    return "\n\n" + escalation;
+  }
 
   if (dispute && dispute.dispute_category !== "insufficient_data") {
     const tone = DISPUTE_TONE[dispute.dispute_category] || "";
@@ -291,7 +316,7 @@ async function generateRec({customer,emails,usageSummary,npsSummary,tasks,disput
   const ems  = emails.length ? emails.map(e=>`[${e.direction}] ${e.date} | ${e.subject} | ${e.snippet}`).join("\n") : "None";
   const text = await callClaude({
     system:"Collections intelligence analyst. Return ONLY raw JSON.",
-    userMsg:`Customer: ${customer.name}\nAM: ${customer.accountManager||"?"}\nOutstanding: ${fmt(customer.totalOutstanding,customer.currency)} / ${customer.maxDaysOverdue}d overdue\n\nInvoices:\n${invs}\n\nEmails:\n${ems}\n\nTasks:\n${fmtTasks(tasks)}\n\nUsage: ${fmtUsage(usageSummary)}\nNPS: ${fmtNps(npsSummary)}${toneHint(dispute,npsSummary,usageSummary)}${senderHint(sender,customer.accountManager)}\n\nReturn exactly:\n{"riskScore":"High"|"Medium"|"Low","riskReasoning":"2-3 sentences","recommendedAction":"short title","actionReasoning":"1-2 sentences","playbook":[{"step":1,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"},{"step":2,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"},{"step":3,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"}],"draftEmail":{"subject":"","body":""}}`,
+    userMsg:`Customer: ${customer.name}\nAM: ${customer.accountManager||"?"}\nOutstanding: ${fmt(customer.totalOutstanding,customer.currency)} / ${customer.maxDaysOverdue}d overdue\n\nInvoices:\n${invs}\n\nEmails:\n${ems}\n\nTasks:\n${fmtTasks(tasks)}\n\nUsage: ${fmtUsage(usageSummary)}\nNPS: ${fmtNps(npsSummary)}${toneHint(dispute,npsSummary,usageSummary,customer,tasks)}${senderHint(sender,customer.accountManager)}\n\nReturn exactly:\n{"riskScore":"High"|"Medium"|"Low","riskReasoning":"2-3 sentences","recommendedAction":"short title","actionReasoning":"1-2 sentences","playbook":[{"step":1,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"},{"step":2,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"},{"step":3,"action":"","timing":"","channel":"Email"|"Phone"|"Slack"|"Legal"}],"draftEmail":{"subject":"","body":""}}`,
     maxTokens:1500,
   });
   return parseJSON(text);
@@ -301,7 +326,7 @@ async function generateBulkEmail(customer, usageSummary, dispute, sender) {
   const invs = customer.invoices.map(i=>`${i.number}: ${fmt(i.outstanding,customer.currency)} ${i.daysOverdue}d overdue`).join("\n");
   const text = await callClaude({
     system:"Collections specialist. Return ONLY raw JSON.",
-    userMsg:`Write a professional collections email.\nCustomer: ${customer.name}\nOutstanding: ${fmt(customer.totalOutstanding,customer.currency)} / ${customer.maxDaysOverdue}d overdue\nInvoices:\n${invs}\nUsage: ${fmtUsage(usageSummary)}${toneHint(dispute,null,usageSummary)}${senderHint(sender,customer.accountManager)}\nReturn: {"subject":"","body":""}`,
+    userMsg:`Write a professional collections email.\nCustomer: ${customer.name}\nOutstanding: ${fmt(customer.totalOutstanding,customer.currency)} / ${customer.maxDaysOverdue}d overdue\nInvoices:\n${invs}\nUsage: ${fmtUsage(usageSummary)}${toneHint(dispute,null,usageSummary,customer)}${senderHint(sender,customer.accountManager)}\nReturn: {"subject":"","body":""}`,
     maxTokens:600,
   });
   return parseJSON(text);
