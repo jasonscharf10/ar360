@@ -20,7 +20,7 @@
 
 // Paste your AR360 artifact code here
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { signOut } from "next-auth/react";
 import Papa from "papaparse";
 
@@ -106,6 +106,17 @@ function buildNpsIndex(rows) {
     if (!key) continue;
     if (!map[key]) map[key]=[];
     map[key].push(r);
+  }
+  return map;
+}
+
+function buildTicketsIndex(rows) {
+  const map = {};
+  for (const r of rows) {
+    const k = (r["ACCOUNT_CODE"]||"").trim();
+    if (!k) continue;
+    if (!map[k]) map[k] = [];
+    map[k].push(r);
   }
   return map;
 }
@@ -447,20 +458,31 @@ function DropZone({label,sublabel,icon,loaded,onText,onClear}) {
 
 // ── Landing Screen ────────────────────────────────────────────────────────────
 function LandingScreen({onImport}) {
-  const [inv,setInv]=useState(""); const [tasks,setTasks]=useState("");
+  const [recurlyCustomers,setRecurlyCustomers]=useState(null);
+  const [recurlyLoading,setRecurlyLoading]=useState(false);
+  const [tasks,setTasks]=useState("");
   const [nps,setNps]=useState(""); const [usage,setUsage]=useState("");
   const [err,setErr]=useState(null); const [open,setOpen]=useState(false);
-  const anyLoaded=inv||tasks||nps||usage;
+  const anyLoaded=recurlyCustomers||tasks||nps||usage;
   const sources=[
-    {label:"Invoice Data",sublabel:"From Upflow — Customer Name, Invoice #, Days Overdue…",icon:"📄",val:inv,set:setInv},
     {label:"Salesforce Tasks",sublabel:"ORGANIZATION_UUID__C, Subject, Description, Status…",icon:"✅",val:tasks,set:setTasks},
     {label:"NPS Responses",sublabel:"end_user__properties__account_code, NPS score, Comment…",icon:"⭐",val:nps,set:setNps},
     {label:"Snowflake Usage Data",sublabel:"ACCOUNT_CODE, USER_ID, USAGE_DATE, LEVEL_1, KEY_ACTION…",icon:"📊",val:usage,set:setUsage},
   ];
+  async function loadRecurly() {
+    setRecurlyLoading(true); setErr(null);
+    try {
+      const res=await fetch('/api/customers');
+      if(!res.ok){const d=await res.json();throw new Error(d.error||`HTTP ${res.status}`);}
+      const {customers}=await res.json();
+      if(!Array.isArray(customers)||!customers.length) throw new Error('No open invoices found in Recurly');
+      setRecurlyCustomers(customers);
+    } catch(e){setErr(e.message);}
+    finally{setRecurlyLoading(false);}
+  }
   function go() {
     try {
-      let customers=null,usageIndex=null,npsIndex=null,tasksIndex=null;
-      if (inv.trim())   { customers=buildCustomers(parseCSV(inv)); if(!customers.length) throw new Error("No customer rows found"); }
+      let customers=recurlyCustomers||null,usageIndex=null,npsIndex=null,tasksIndex=null;
       if (usage.trim()) usageIndex=buildUsageIndex(parseCSV(usage));
       if (nps.trim())   npsIndex=buildNpsIndex(parseCSV(nps));
       if (tasks.trim()) tasksIndex=buildTasksIndex(parseCSV(tasks));
@@ -495,11 +517,29 @@ function LandingScreen({onImport}) {
           ?<button onClick={()=>setOpen(true)} style={{background:`linear-gradient(135deg,${C.brand},${C.brandDark})`,border:"none",borderRadius:12,padding:"14px 32px",fontSize:15,fontWeight:700,color:"#fff",cursor:"pointer",boxShadow:`0 0 32px ${C.brandGlow}`}}>Load your data →</button>
           :<div style={{maxWidth:560,margin:"0 auto",textAlign:"left"}}>
             <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
+              {/* Recurly — Invoice Data */}
+              {recurlyCustomers
+                ?<div style={{background:"#0e1f17",border:"2px dashed #1a4a2e",borderRadius:12,padding:"16px 20px",display:"flex",alignItems:"center",gap:14}}>
+                  <div style={{fontSize:22,flexShrink:0}}>✅</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:C.brand}}>Recurly loaded — {recurlyCustomers.length} customers</div>
+                    <div style={{fontSize:11,color:C.faint,marginTop:2}}>Click × to refresh</div>
+                  </div>
+                  <button onClick={()=>setRecurlyCustomers(null)} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 9px",fontSize:12,color:C.faint,cursor:"pointer",flexShrink:0}}>×</button>
+                </div>
+                :<button onClick={loadRecurly} disabled={recurlyLoading} style={{background:recurlyLoading?"#0e1f17":C.surface,border:`2px dashed ${recurlyLoading?C.brand:C.border}`,borderRadius:12,padding:"16px 20px",width:"100%",display:"flex",alignItems:"center",gap:14,cursor:recurlyLoading?"not-allowed":"pointer",textAlign:"left"}}>
+                  <div style={{fontSize:22,flexShrink:0}}>{recurlyLoading?"⏳":"📄"}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600,color:recurlyLoading?C.brand:C.text}}>{recurlyLoading?"Loading from Recurly…":"Invoice Data"}</div>
+                    <div style={{fontSize:11,color:C.faint,marginTop:2}}>{recurlyLoading?"Fetching open invoices…":"Click to load live from Recurly"}</div>
+                  </div>
+                </button>
+              }
               {sources.map(s=><DropZone key={s.label} label={s.label} sublabel={s.sublabel} icon={s.icon} loaded={!!s.val} onText={s.set} onClear={()=>s.set("")}/>)}
             </div>
             {err&&<div style={{fontSize:12,color:C.red,marginBottom:10}}>⚠ {err}</div>}
             <button onClick={go} disabled={!anyLoaded} style={{width:"100%",background:anyLoaded?`linear-gradient(135deg,${C.brand},${C.brandDark})`:C.surface,border:"none",borderRadius:12,padding:14,fontSize:15,fontWeight:700,color:anyLoaded?"#fff":C.vfaint,cursor:anyLoaded?"pointer":"not-allowed"}}>
-              {anyLoaded?"Analyze →":"Drop in at least one file to continue"}
+              {anyLoaded?"Analyze →":"Load at least one data source to continue"}
             </button>
           </div>
         }
@@ -517,7 +557,7 @@ function LandingScreen({onImport}) {
         </div>
         <div style={{marginTop:40,padding:"18px 24px",background:C.surface,border:`1px solid ${C.border}`,borderRadius:14,display:"flex",alignItems:"center",flexWrap:"wrap"}}>
           <div style={{fontSize:11,color:C.faint,fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginRight:20,flexShrink:0}}>Connects with</div>
-          {["Upflow","Salesforce","Snowflake","Gmail","Web Search"].map((s,i,arr)=>(
+          {["Recurly","Salesforce","Snowflake","Gmail","Web Search"].map((s,i,arr)=>(
             <span key={s} style={{fontSize:13,color:C.muted,padding:"0 14px",borderRight:i<arr.length-1?`1px solid ${C.border}`:"none"}}>{s}</span>
           ))}
         </div>
@@ -707,9 +747,13 @@ function HitList({customers,usageIndex,npsIndex,tasksIndex,onSelect,disputes,use
 }
 
 // ── Customer Detail ───────────────────────────────────────────────────────────
-function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute,user}) {
+function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,ticketsIndex,onBack,dispute,user}) {
   const [rec,setRec]=useState(null); const [recErr,setRecErr]=useState(null); const [recLoading,setRecLoading]=useState(false);
   const [emails,setEmails]=useState([]); const [emailLoading,setEmailLoading]=useState(false); const [emailErr,setEmailErr]=useState(null);
+  const [draftTo,setDraftTo]=useState(selected.email||"");
+  const [draftLoading,setDraftLoading]=useState(false); const [draftDone,setDraftDone]=useState(false);
+  const [sendLoading,setSendLoading]=useState(false); const [sendDone,setSendDone]=useState(false);
+  const [gmailErr,setGmailErr]=useState(null);
   const [news,setNews]=useState(null); const [newsLoading,setNewsLoading]=useState(false); const [newsErr,setNewsErr]=useState(null);
   const [execs,setExecs]=useState(null); const [execsLoading,setExecsLoading]=useState(false); const [execsErr,setExecsErr]=useState(null);
   const [execEmails,setExecEmails]=useState({}); const [execEmailLoading,setExecEmailLoading]=useState({});
@@ -739,6 +783,28 @@ function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute,
     try{setExecs(await searchExecutives(selected));}
     catch(e){setExecsErr(e.message);}finally{setExecsLoading(false);}
   }
+  async function doCreateDraft() {
+    if (!rec?.draftEmail) return;
+    setDraftLoading(true); setGmailErr(null); setDraftDone(false);
+    try {
+      const res = await fetch("/api/gmail-draft", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:draftTo,subject:rec.draftEmail.subject,body:rec.draftEmail.body})});
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error||`HTTP ${res.status}`);
+      setDraftDone(true);
+    } catch(e) { setGmailErr(e.message); }
+    finally { setDraftLoading(false); }
+  }
+  async function doSend() {
+    if (!rec?.draftEmail) return;
+    setSendLoading(true); setGmailErr(null); setSendDone(false);
+    try {
+      const res = await fetch("/api/gmail-send", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({to:draftTo,subject:rec.draftEmail.subject,body:rec.draftEmail.body})});
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error||`HTTP ${res.status}`);
+      setSendDone(true);
+    } catch(e) { setGmailErr(e.message); }
+    finally { setSendLoading(false); }
+  }
   async function doGenExecEmail(exec,i) {
     setExecEmailLoading(p=>({...p,[i]:true}));
     try{
@@ -748,8 +814,9 @@ function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute,
     }catch{}finally{setExecEmailLoading(p=>({...p,[i]:false}));}
   }
 
-  const tabs=["recommendation","playbook","email","invoices","tasks","usage","nps","executives","news"];
-  const tabLabel=t=>({recommendation:"Recommendation",playbook:"Playbook",email:"Draft Email",invoices:"Invoices",tasks:`Tasks${tasks.length?` (${tasks.length})`:""}`,usage:"Usage",nps:`NPS${npsSummary?` (${npsSummary.count})`:""}`,executives:"Executives",news:"🔍 News"}[t]);
+  const intercomTickets=(ticketsIndex&&selected)?ticketsIndex[selected.organizationUuid]||[]:[];
+  const tabs=["recommendation","playbook","email","invoices","tasks","support","usage","nps","executives","news"];
+  const tabLabel=t=>({recommendation:"Recommendation",playbook:"Playbook",email:"Draft Email",invoices:"Invoices",tasks:`Tasks${tasks.length?` (${tasks.length})`:""}`,support:`Support${intercomTickets.length?` (${intercomTickets.length})`:""}`,usage:"Usage",nps:`NPS${npsSummary?` (${npsSummary.count})`:""}`,executives:"Executives",news:"🔍 News"}[t]);
 
   return (
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
@@ -872,15 +939,39 @@ function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute,
             <button onClick={()=>setTab("recommendation")} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"7px 16px",fontSize:13,color:C.brand,cursor:"pointer"}}>← Back to Recommendation</button>
           </div>
           :rec.draftEmail&&(
-            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
-              <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div>
-                  <div style={{fontSize:11,color:C.faint,marginBottom:2}}>Subject</div>
-                  <div style={{fontSize:13,fontWeight:600,color:C.text}}>{rec.draftEmail.subject}</div>
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+                <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:11,color:C.faint,marginBottom:2}}>Subject</div>
+                    <div style={{fontSize:13,fontWeight:600,color:C.text}}>{rec.draftEmail.subject}</div>
+                  </div>
+                  <CopyBtn text={`Subject: ${rec.draftEmail.subject}\n\n${rec.draftEmail.body}`}/>
                 </div>
-                <CopyBtn text={`Subject: ${rec.draftEmail.subject}\n\n${rec.draftEmail.body}`}/>
+                <div style={{padding:16,fontSize:13,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{rec.draftEmail.body}</div>
               </div>
-              <div style={{padding:16,fontSize:13,color:C.text,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{rec.draftEmail.body}</div>
+
+              {/* Gmail draft / send */}
+              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+                <div style={{fontSize:11,fontWeight:600,color:C.faint,textTransform:"uppercase",letterSpacing:1}}>Send via Gmail</div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:12,color:C.faint,flexShrink:0}}>To:</span>
+                  <input
+                    value={draftTo} onChange={e=>setDraftTo(e.target.value)}
+                    placeholder="recipient@company.com"
+                    style={{flex:1,background:C.surfaceDim,border:`1px solid ${C.border}`,borderRadius:6,padding:"5px 10px",fontSize:12,color:C.text,outline:"none"}}
+                  />
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                  <button onClick={doCreateDraft} disabled={draftLoading||!draftTo} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:6,padding:"6px 14px",fontSize:12,color:draftTo?C.text:C.faint,cursor:draftTo?"pointer":"default"}}>
+                    {draftLoading?<><Spinner size={11}/> Saving…</>:draftDone?"✓ Saved to Drafts":"Save to Drafts"}
+                  </button>
+                  <button onClick={doSend} disabled={sendLoading||!draftTo} style={{background:sendDone?"none":`linear-gradient(135deg,${C.brand},${C.brandDark})`,border:sendDone?`1px solid ${C.brand}`:"none",borderRadius:6,padding:"6px 16px",fontSize:12,color:sendDone?C.brand:"#fff",cursor:draftTo?"pointer":"default",fontWeight:600}}>
+                    {sendLoading?<><Spinner size={11}/> Sending…</>:sendDone?"✓ Sent":"Send Now"}
+                  </button>
+                </div>
+                {gmailErr&&<div style={{fontSize:12,color:C.red}}>{gmailErr}</div>}
+              </div>
             </div>
           )
         )}
@@ -946,6 +1037,38 @@ function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute,
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Support Tickets (Intercom) */}
+        {tab==="support"&&(
+          intercomTickets.length===0
+          ?<div style={{fontSize:13,color:C.vfaint,textAlign:"center",padding:"30px 0"}}>No Intercom tickets found for this customer.</div>
+          :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {intercomTickets.map((t,i)=>{
+              const stateColor=t.TICKET_STATE==="resolved"?C.brand:t.TICKET_STATE==="open"?C.yellow:C.faint;
+              return (
+                <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,overflow:"hidden"}}>
+                  <div style={{padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:600,color:C.text,lineHeight:1.4,marginBottom:4}}>{t.TITLE||"(no title)"}</div>
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                        {t.ISSUE_TYPE&&<span style={{fontSize:11,color:C.muted,background:C.surfaceDim,border:`1px solid ${C.border}`,borderRadius:10,padding:"1px 8px"}}>{t.ISSUE_TYPE}</span>}
+                        {t.PRIORITY&&<span style={{fontSize:11,color:C.yellow,background:"#2a201522",border:`1px solid ${C.yellow}44`,borderRadius:10,padding:"1px 8px"}}>{t.PRIORITY}</span>}
+                      </div>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4,flexShrink:0}}>
+                      <span style={{fontSize:11,fontWeight:600,color:stateColor,textTransform:"capitalize"}}>{t.TICKET_STATE}</span>
+                      <span style={{fontSize:11,color:C.vfaint}}>#{t.TICKET_ID}</span>
+                    </div>
+                  </div>
+                  <div style={{padding:"6px 16px 10px",display:"flex",gap:16,borderTop:`1px solid ${C.borderDim}`}}>
+                    <span style={{fontSize:11,color:C.vfaint}}>Created {(t.CREATED_AT||"").slice(0,10)}</span>
+                    {t.UPDATED_AT&&t.UPDATED_AT!==t.CREATED_AT&&<span style={{fontSize:11,color:C.vfaint}}>Updated {(t.UPDATED_AT||"").slice(0,10)}</span>}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -1141,9 +1264,10 @@ function CustomerDetail({selected,usageIndex,npsIndex,tasksIndex,onBack,dispute,
 // ── App root ──────────────────────────────────────────────────────────────────
 export default function App({ user }) {
   const [customers,  setCustomers]  = useState(null);
-  const [usageIndex, setUsageIndex] = useState({});
-  const [npsIndex,   setNpsIndex]   = useState({});
-  const [tasksIndex, setTasksIndex] = useState(null);
+  const [usageIndex,   setUsageIndex]   = useState({});
+  const [npsIndex,     setNpsIndex]     = useState({});
+  const [tasksIndex,   setTasksIndex]   = useState(null);
+  const [ticketsIndex, setTicketsIndex] = useState({});
   const [view,       setView]       = useState("landing");
   const [selected,   setSelected]   = useState(null);
   const [disputes,   setDisputes]   = useState({});
@@ -1151,7 +1275,15 @@ export default function App({ user }) {
   const [custDisputeFilter, setCustDisputeFilter] = useState("");
   const [custOverdueFilter, setCustOverdueFilter] = useState("");
   const [custAMFilter, setCustAMFilter] = useState("");
+  const [custTicketFilter, setCustTicketFilter] = useState("");
   const [custSortBy, setCustSortBy] = useState("amount");
+  const [loading,    setLoading]    = useState(false);
+  const [loadError,  setLoadError]  = useState(null);
+  const [showImport, setShowImport] = useState(false);
+  const [tasks,      setTasks]      = useState("");
+  const [nps,        setNps]        = useState("");
+  const [usage,      setUsage]      = useState("");
+  const [importErr,  setImportErr]  = useState(null);
 
   // Fetch dispute classifications from the nightly cron output
   function fetchDisputes() {
@@ -1167,40 +1299,92 @@ export default function App({ user }) {
     if (newU) setUsageIndex(p=>({...p,...newU}));
     if (newN) setNpsIndex(p=>({...p,...newN}));
     if (newT) setTasksIndex(p=>p?{...newT,map:{...p.map,...newT.map}}:newT);
-    setView("customers");
-    fetchDisputes();
   }
 
-  const showLanding = !customers||view==="landing";
+  async function loadSnowflakeData(orgUuids) {
+    try {
+      const res=await fetch('/api/snowflake-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orgUuids})});
+      if(!res.ok){const d=await res.json();console.warn('[snowflake]',d.error);return;}
+      const {accountManagers,tasks,usage,nps,tickets}=await res.json();
+      if(accountManagers&&Object.keys(accountManagers).length){
+        setCustomers(prev=>prev?prev.map(c=>({...c,accountManager:accountManagers[c.organizationUuid]||c.accountManager})):prev);
+      }
+      if(usage?.length)   setUsageIndex(buildUsageIndex(usage));
+      if(nps?.length)     setNpsIndex(buildNpsIndex(nps));
+      if(tasks?.length)   setTasksIndex(buildTasksIndex(tasks));
+      if(tickets?.length) setTicketsIndex(buildTicketsIndex(tickets));
+    } catch(e){console.warn('[snowflake] load error:',e);}
+  }
+
+  async function loadCustomers() {
+    setLoading(true); setLoadError(null);
+    try {
+      const res=await fetch('/api/customers');
+      if(!res.ok){const d=await res.json();throw new Error(d.error||`HTTP ${res.status}`);}
+      const {customers}=await res.json();
+      if(!Array.isArray(customers)||!customers.length) throw new Error('No open invoices found in Recurly');
+      setCustomers(customers);
+      setView("customers");
+      fetchDisputes();
+      loadSnowflakeData(customers.map(c=>c.organizationUuid));
+    } catch(e){setLoadError(e.message);}
+    finally{setLoading(false);}
+  }
+  useEffect(()=>{loadCustomers();},[]);
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:"100vh",background:C.bg,fontFamily:"'Inter',system-ui,sans-serif",color:C.text,overflow:"hidden"}}>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}*{box-sizing:border-box}textarea,input,button{font-family:inherit}`}</style>
 
-      {customers&&!showLanding&&(
-        <div style={{display:"flex",alignItems:"center",borderBottom:`1px solid ${C.border}`,background:C.surfaceDim,flexShrink:0}}>
+      <div style={{position:"relative",flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",borderBottom:`1px solid ${C.border}`,background:C.surfaceDim,height:44}}>
           <div style={{padding:"0 20px",height:44,display:"flex",alignItems:"center",gap:10,borderRight:`1px solid ${C.border}`}}>
             <span style={{fontSize:18}}>🐼</span>
             <span style={{fontSize:10,fontWeight:600,color:C.brand,letterSpacing:2,textTransform:"uppercase"}}>PandaDoc</span>
             <span style={{color:C.faint,fontWeight:300}}>|</span>
             <span style={{fontSize:14,fontWeight:800,color:C.text}}>AR360</span>
           </div>
-          {[["customers","Customers"],["hitlist","⚡ Hit List"],["am","AM Breakdown"]].map(([v,label])=>(
+          {customers&&[["customers","Customers"],["hitlist","⚡ Hit List"],["am","AM Breakdown"]].map(([v,label])=>(
             <button key={v} onClick={()=>{setSelected(null);setView(v);}} style={{background:"none",border:"none",borderBottom:view===v?`2px solid ${C.brand}`:"2px solid transparent",padding:"0 18px",height:44,fontSize:13,color:view===v?C.greenLight:C.faint,cursor:"pointer",fontWeight:view===v?600:400}}>
               {label}
             </button>
           ))}
           <div style={{flex:1}}/>
-          <button onClick={()=>setView("landing")} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,margin:"0 12px",padding:"4px 10px",fontSize:11,color:C.faint,cursor:"pointer"}}>↑ Import more</button>
+          <button onClick={()=>{setShowImport(p=>!p);setImportErr(null);}} style={{background:"none",border:`1px solid ${showImport?C.brand:C.border}`,borderRadius:6,margin:"0 12px",padding:"4px 10px",fontSize:11,color:showImport?C.brand:C.faint,cursor:"pointer"}}>↑ Import CSVs</button>
           <button onClick={()=>signOut()} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,margin:"0 12px 0 0",padding:"4px 10px",fontSize:11,color:C.faint,cursor:"pointer"}}>Sign out</button>
         </div>
-      )}
+        {showImport&&(
+          <div style={{position:"absolute",right:0,top:44,width:380,background:C.surface,border:`1px solid ${C.border}`,borderTop:"none",borderRadius:"0 0 8px 8px",boxShadow:"0 8px 24px #0008",zIndex:200,padding:16,display:"flex",flexDirection:"column",gap:10}}>
+            <div style={{fontSize:12,fontWeight:600,color:C.text,marginBottom:2}}>Import CSV Data</div>
+            {[
+              {label:"Salesforce Tasks",sublabel:"ORGANIZATION_UUID__C, Subject, Description…",icon:"✅",val:tasks,set:setTasks},
+              {label:"NPS Responses",sublabel:"end_user__properties__account_code, NPS score…",icon:"⭐",val:nps,set:setNps},
+              {label:"Snowflake Usage",sublabel:"ACCOUNT_CODE, USER_ID, USAGE_DATE, LEVEL_1…",icon:"📊",val:usage,set:setUsage},
+            ].map(src=><DropZone key={src.label} label={src.label} sublabel={src.sublabel} icon={src.icon} val={src.val} set={src.set}/>)}
+            {importErr&&<div style={{fontSize:12,color:C.red}}>⚠ {importErr}</div>}
+            <button onClick={()=>{
+              try{
+                setImportErr(null);
+                let ui=null,ni=null,ti=null;
+                if(usage.trim()) ui=buildUsageIndex(parseCSV(usage));
+                if(nps.trim()) ni=buildNpsIndex(parseCSV(nps));
+                if(tasks.trim()) ti=buildTasksIndex(parseCSV(tasks));
+                handleImport(null,ui,ni,ti);
+                setShowImport(false);
+              }catch(e){setImportErr(e.message);}
+            }} style={{background:C.brand,border:"none",borderRadius:7,padding:"8px 0",fontSize:13,color:"#fff",cursor:"pointer",fontWeight:600}}>
+              Apply
+            </button>
+          </div>
+        )}
+      </div>
 
-      {customers&&!showLanding&&view!=="detail"&&<StatsBar customers={customers} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex}/>}
+      {customers&&view!=="detail"&&<StatsBar customers={customers} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex}/>}
 
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
-        {showLanding&&<LandingScreen onImport={handleImport}/>}
-        {!showLanding&&view==="customers"&&(
+        {loading&&<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:12}}><Spinner size={24}/><span style={{color:C.faint,fontSize:14}}>Loading from Recurly + Salesforce…</span></div>}
+        {!loading&&loadError&&<div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}><div style={{color:C.red,fontSize:14}}>⚠ {loadError}</div><button onClick={loadCustomers} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 16px",fontSize:12,color:C.brand,cursor:"pointer"}}>Retry</button></div>}
+        {customers&&view==="customers"&&(
           <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
             {/* Search + Filter bar */}
             <div style={{padding:"10px 16px",borderBottom:`1px solid ${C.border}`,background:C.surfaceDim,display:"flex",gap:8,alignItems:"center",flexShrink:0,flexWrap:"wrap"}}>
@@ -1228,6 +1412,12 @@ export default function App({ user }) {
                   <option key={am} value={am}>{am.replace("@pandadoc.com","")}</option>
                 ))}
               </select>
+              <select value={custTicketFilter} onChange={e=>setCustTicketFilter(e.target.value)}
+                style={{background:C.surface,border:`1px solid ${custTicketFilter?C.blue:C.border}`,borderRadius:7,padding:"6px 8px",fontSize:12,color:custTicketFilter?C.blue:C.text,cursor:"pointer"}}>
+                <option value="">All tickets</option>
+                <option value="open">Has open tickets</option>
+                <option value="any">Has any tickets</option>
+              </select>
               <select value={custSortBy} onChange={e=>setCustSortBy(e.target.value)}
                 style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 8px",fontSize:12,color:C.text,cursor:"pointer"}}>
                 <option value="amount">Sort: Amount</option>
@@ -1235,8 +1425,8 @@ export default function App({ user }) {
                 <option value="name">Sort: Name</option>
                 <option value="risk">Sort: Risk</option>
               </select>
-              {(custSearch||custDisputeFilter||custOverdueFilter||custAMFilter)&&(
-                <button onClick={()=>{setCustSearch("");setCustDisputeFilter("");setCustOverdueFilter("");setCustAMFilter("");}}
+              {(custSearch||custDisputeFilter||custOverdueFilter||custAMFilter||custTicketFilter)&&(
+                <button onClick={()=>{setCustSearch("");setCustDisputeFilter("");setCustOverdueFilter("");setCustAMFilter("");setCustTicketFilter("");}}
                   style={{background:"none",border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 10px",fontSize:12,color:C.faint,cursor:"pointer",whiteSpace:"nowrap"}}>
                   Clear
                 </button>
@@ -1249,6 +1439,8 @@ export default function App({ user }) {
               if(custDisputeFilter) list=list.filter(c=>disputes[c.organizationUuid]?.dispute_category===custDisputeFilter);
               if(custAMFilter) list=list.filter(c=>c.accountManager===custAMFilter);
               if(custOverdueFilter) list=list.filter(c=>c.maxDaysOverdue>=parseInt(custOverdueFilter));
+              if(custTicketFilter==="any") list=list.filter(c=>(ticketsIndex[c.organizationUuid]||[]).length>0);
+              if(custTicketFilter==="open") list=list.filter(c=>(ticketsIndex[c.organizationUuid]||[]).some(t=>t.TICKET_STATE!=="resolved"));
               if(custSortBy==="overdue") list.sort((a,b)=>b.maxDaysOverdue-a.maxDaysOverdue);
               else if(custSortBy==="name") list.sort((a,b)=>(a.name||"").localeCompare(b.name||""));
               else if(custSortBy==="risk") list.sort((a,b)=>computeRiskScore(b,usageIndex,npsIndex,disputes).total-computeRiskScore(a,usageIndex,npsIndex,disputes).total);
@@ -1259,6 +1451,8 @@ export default function App({ user }) {
               const nps=getNpsSummary(c,npsIndex);
               const taskCount=getTasks(c,tasksIndex).length;
               const d=disputes[c.organizationUuid];
+              const customerTickets=ticketsIndex[c.organizationUuid]||[];
+              const openTickets=customerTickets.filter(t=>t.TICKET_STATE!=="resolved");
               return (
                 <div key={i} onClick={()=>{setSelected(c);setView("detail");}}
                   style={{padding:"12px 20px",cursor:"pointer",borderBottom:`1px solid ${C.borderDim}`,display:"flex",justifyContent:"space-between",alignItems:"center",gap:12}}
@@ -1271,6 +1465,8 @@ export default function App({ user }) {
                       {c.maxDaysOverdue>0&&<span style={{color:c.maxDaysOverdue>60?C.red:C.yellow}}>· {c.maxDaysOverdue}d overdue</span>}
                       {hasUsage&&<span style={{color:C.brand}}>· usage ✓</span>}
                       {taskCount>0&&<span style={{color:C.brand}}>· {taskCount} tasks</span>}
+                      {openTickets.length>0&&<span style={{color:C.blue}}>· {openTickets.length} open ticket{openTickets.length!==1?"s":""}</span>}
+                      {openTickets.length===0&&customerTickets.length>0&&<span style={{color:C.faint}}>· {customerTickets.length} ticket{customerTickets.length!==1?"s":""}</span>}
                       {c.accountManager&&<span>· {c.accountManager.replace("@pandadoc.com","")}</span>}
                     </div>
                   </div>
@@ -1296,9 +1492,9 @@ export default function App({ user }) {
             </div>
           </div>
         )}
-        {!showLanding&&view==="hitlist"&&<HitList customers={customers} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex} onSelect={c=>{setSelected(c);setView("detail");}} disputes={disputes} user={user}/>}
-        {!showLanding&&view==="am"&&<AMBreakdown customers={customers}/>}
-        {!showLanding&&view==="detail"&&selected&&<CustomerDetail key={selected.name} selected={selected} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex} onBack={()=>setView("customers")} dispute={disputes[selected.organizationUuid]} user={user}/>}
+        {customers&&view==="hitlist"&&<HitList customers={customers} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex} onSelect={c=>{setSelected(c);setView("detail");}} disputes={disputes} user={user}/>}
+        {customers&&view==="am"&&<AMBreakdown customers={customers}/>}
+        {customers&&view==="detail"&&selected&&<CustomerDetail key={selected.name} selected={selected} usageIndex={usageIndex} npsIndex={npsIndex} tasksIndex={tasksIndex} ticketsIndex={ticketsIndex} onBack={()=>setView("customers")} dispute={disputes[selected.organizationUuid]} user={user}/>}
       </div>
     </div>
   );

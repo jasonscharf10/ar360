@@ -16,8 +16,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import Papa from 'papaparse'
 import { google } from 'googleapis'
+import { fetchOpenCustomers } from '@/lib/recurly'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -309,128 +309,53 @@ function noDataResult(customer: CustomerRecord): DisputeClassification {
 // ---------------------------------------------------------------------------
 
 async function loadOpenBalanceCustomers(): Promise<CustomerRecord[]> {
-  const csvPath = path.join(process.cwd(), 'data', 'upflow-export.csv')
-  const raw = await fs.readFile(csvPath, 'utf-8')
-  const { data: rows } = Papa.parse<Record<string, string>>(raw.trim(), {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: h => h.trim().replace(/^\uFEFF/, ''),
-    transform: v => v.trim(),
-  })
-
-  // Group rows by customer name — same logic as AR360.tsx buildCustomers
-  const map: Record<string, {
-    name: string
-    orgUuid: string
-    emailDomain: string
-    invoices: { outstanding: number; daysOverdue: number }[]
-  }> = {}
-
-  const cols = rows[0] ? Object.keys(rows[0]) : []
-  const emailCols = cols.filter(k => k.toLowerCase().includes('email'))
-
-  for (const r of rows) {
-    const name = r['Customer Name'] || 'Unknown'
-    if (!map[name]) {
-      // Extract email domain
-      let domain = ''
-      for (const k of emailCols) {
-        const val = (r[k] || '').split('@')[1]?.toLowerCase().trim()
-        if (val) { domain = val; break }
-      }
-
-      map[name] = {
-        name,
-        orgUuid: r['Organization UUID'] || '',
-        emailDomain: domain,
-        invoices: [],
-      }
-    }
-
-    const outstanding = parseFloat((r['Amount Outstanding'] || '0').replace(/[^0-9.\-]/g, '')) || 0
-    const daysOverdue = parseInt((r['Days Overdue'] || '0').replace(/[^0-9\-]/g, '')) || 0
-    map[name].invoices.push({ outstanding, daysOverdue })
-  }
-
-  return Object.values(map)
-    .filter(c => c.invoices.some(i => i.outstanding > 0))
-    .map(c => ({
-      org_uuid: c.orgUuid,
-      company_name: c.name,
-      domain: c.emailDomain,
-      days_overdue: Math.max(0, ...c.invoices.map(i => i.daysOverdue)),
-      amount_due: c.invoices.reduce((s, i) => s + i.outstanding, 0),
-      open_invoice_count: c.invoices.filter(i => i.outstanding > 0).length,
-    }))
-    .sort((a, b) => b.amount_due - a.amount_due)
+  const customers = await fetchOpenCustomers()
+  return customers.map(c => ({
+    org_uuid: c.organizationUuid,
+    company_name: c.name,
+    domain: c.emailDomain,
+    days_overdue: c.maxDaysOverdue,
+    amount_due: c.totalOutstanding,
+    open_invoice_count: c.invoices.filter(i => i.outstanding > 0).length,
+  }))
 }
 
-// Cache parsed SF tasks so we only read/parse the CSV once per invocation
-let sfTasksCache: Record<string, SalesforceTask[]> | null = null
-
-async function loadSfTasksCache(): Promise<Record<string, SalesforceTask[]>> {
-  if (sfTasksCache) return sfTasksCache
-
-  const csvPath = path.join(process.cwd(), 'data', 'sf-tasks.csv')
-  const raw = await fs.readFile(csvPath, 'utf-8')
-  const { data: rows } = Papa.parse<Record<string, string>>(raw.trim(), {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: h => h.trim().replace(/^\uFEFF/, ''),
-    transform: v => v.trim(),
-  })
-
-  // Dynamically find the UUID column — same logic as AR360.tsx buildTasksIndex
-  const cols = rows[0] ? Object.keys(rows[0]) : []
-  const idCol = cols.find(k => /organization_uuid/i.test(k))
-    || cols.find(k => /uuid/i.test(k))
-    || cols.find(k => /accountid/i.test(k))
-    || ''
-
-  // Find date column
-  const dateCol = cols.find(k => /^activitydate$/i.test(k))
-    || cols.find(k => /^createddate$/i.test(k))
-    || cols.find(k => /date/i.test(k))
-    || ''
-
-  // Find type column
-  const typeCol = cols.find(k => /^tasksubtype$/i.test(k))
-    || cols.find(k => /^type$/i.test(k))
-    || ''
-
-  // Find description column(s)
-  const subjectCol = cols.find(k => /^subject$/i.test(k)) || ''
-  const descCol = cols.find(k => /^description$/i.test(k)) || ''
-
-  const map: Record<string, SalesforceTask[]> = {}
-  for (const r of rows) {
-    const key = (r[idCol] || '').trim()
-    if (!key) continue
-
-    const task: SalesforceTask = {
-      org_uuid: key,
-      date: r[dateCol] || '',
-      type: (r[typeCol] || 'Note') as SalesforceTask['type'],
-      description: [r[subjectCol], r[descCol]].filter(Boolean).join(' — '),
-    }
-
-    if (!map[key]) map[key] = []
-    map[key].push(task)
-  }
-
-  // Sort each customer's tasks most-recent-first
-  for (const tasks of Object.values(map)) {
-    tasks.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-  }
-
-  sfTasksCache = map
-  return map
-}
-
+// TODO: Replace with Snowflake query once service account is provisioned.
+// For now, falls back to the sf-tasks.csv file on disk if present.
 async function fetchSalesforceTasks(orgUuid: string): Promise<SalesforceTask[]> {
   try {
-    const map = await loadSfTasksCache()
-    return map[orgUuid] || []
+    const { default: Papa } = await import('papaparse')
+    const csvPath = path.join(process.cwd(), 'data', 'sf-tasks.csv')
+    const raw = await fs.readFile(csvPath, 'utf-8')
+    const { data: rows } = Papa.parse<Record<string, string>>(raw.trim(), {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: h => h.trim().replace(/^\uFEFF/, ''),
+      transform: v => v.trim(),
+    })
+
+    const cols = rows[0] ? Object.keys(rows[0]) : []
+    const idCol = cols.find(k => /organization_uuid/i.test(k))
+      || cols.find(k => /uuid/i.test(k))
+      || cols.find(k => /accountid/i.test(k))
+      || ''
+    const dateCol = cols.find(k => /^activitydate$/i.test(k))
+      || cols.find(k => /^createddate$/i.test(k))
+      || cols.find(k => /date/i.test(k))
+      || ''
+    const typeCol = cols.find(k => /^tasksubtype$/i.test(k)) || cols.find(k => /^type$/i.test(k)) || ''
+    const subjectCol = cols.find(k => /^subject$/i.test(k)) || ''
+    const descCol = cols.find(k => /^description$/i.test(k)) || ''
+
+    return rows
+      .filter(r => (r[idCol] || '').trim() === orgUuid)
+      .map(r => ({
+        org_uuid: orgUuid,
+        date: r[dateCol] || '',
+        type: (r[typeCol] || 'Note') as SalesforceTask['type'],
+        description: [r[subjectCol], r[descCol]].filter(Boolean).join(' — '),
+      }))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   } catch {
     return []
   }

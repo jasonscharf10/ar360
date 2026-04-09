@@ -9,7 +9,7 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       authorization: {
         params: {
-          scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly",
+          scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.send",
           access_type: "offline",
           prompt: "consent",
         },
@@ -32,6 +32,7 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       (session as any).accessToken = token.accessToken;
+      (session as any).refreshToken = token.refreshToken;
       return session;
     },
   },
