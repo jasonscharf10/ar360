@@ -41,18 +41,11 @@ async function getConn(): Promise<snowflake.Connection> {
     .replace(/[\s%]+$/, '')
     .trim()
 
-  // If the key is encrypted, decrypt it using Node crypto before passing to the SDK
-  let privateKey: string
-  if (rawKey.includes('ENCRYPTED')) {
-    // PKCS8 keys always have "ENCRYPTED" in the header even when generated without a passphrase.
-    // Use empty string as default — only set SNOWFLAKE_PRIVATE_KEY_PASSPHRASE if key was generated WITH one.
-    const passphrase = process.env.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE ?? ''
-    const { createPrivateKey } = await import('crypto')
-    const keyObj = createPrivateKey({ key: rawKey, format: 'pem', passphrase })
-    privateKey = keyObj.export({ type: 'pkcs8', format: 'pem' }) as string
-  } else {
-    privateKey = rawKey
-  }
+  // Snowflake SDK requires PKCS8 format — normalize regardless of input format
+  const { createPrivateKey } = await import('crypto')
+  const passphrase = process.env.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE ?? ''
+  const keyObj = createPrivateKey({ key: rawKey, format: 'pem', ...(passphrase ? { passphrase } : {}) })
+  const privateKey = keyObj.export({ type: 'pkcs8', format: 'pem' }) as string
 
   // SDK appends .snowflakecomputing.com — strip it if the env var already has it
   const account = process.env.SNOWFLAKE_ACCOUNT!.trim().replace(/\.snowflakecomputing\.com$/i, '')
