@@ -55,7 +55,7 @@ async function getConn(): Promise<snowflake.Connection> {
   }
 
   // SDK appends .snowflakecomputing.com — strip it if the env var already has it
-  const account = process.env.SNOWFLAKE_ACCOUNT!.replace(/\.snowflakecomputing\.com$/i, '')
+  const account = process.env.SNOWFLAKE_ACCOUNT!.trim().replace(/\.snowflakecomputing\.com$/i, '')
 
   const conn = snowflake.createConnection({
     account,
