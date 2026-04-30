@@ -25,7 +25,7 @@ export async function GET() {
     result.key_line_count = String(rawKey.split('\n').length)
 
     const passphrase = process.env.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE ?? ''
-    const keyObj = createPrivateKey({ key: rawKey, format: 'pem', ...(passphrase ? { passphrase } : {}) })
+    const keyObj = createPrivateKey({ key: rawKey, format: 'pem', passphrase })
     result.key_type = keyObj.asymmetricKeyType ?? 'unknown'
 
     const pubKeyObj = createPublicKey(keyObj)

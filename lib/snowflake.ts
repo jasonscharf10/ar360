@@ -44,7 +44,7 @@ async function getConn(): Promise<snowflake.Connection> {
   // Snowflake SDK requires PKCS8 format — normalize regardless of input format
   const { createPrivateKey } = await import('crypto')
   const passphrase = process.env.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE ?? ''
-  const keyObj = createPrivateKey({ key: rawKey, format: 'pem', ...(passphrase ? { passphrase } : {}) })
+  const keyObj = createPrivateKey({ key: rawKey, format: 'pem', passphrase })
   const privateKey = keyObj.export({ type: 'pkcs8', format: 'pem' }) as string
 
   // SDK appends .snowflakecomputing.com — strip it if the env var already has it
