@@ -31,6 +31,10 @@ export async function GET() {
     const pubKeyObj = createPublicKey(keyObj)
     const der = pubKeyObj.export({ format: 'der', type: 'spki' })
     result.public_key_fingerprint = 'SHA256:' + createHash('sha256').update(der).digest('base64')
+    result.public_key_pem = (pubKeyObj.export({ format: 'pem', type: 'spki' }) as string)
+      .replace(/-----BEGIN PUBLIC KEY-----\n?/, '')
+      .replace(/\n?-----END PUBLIC KEY-----\n?/, '')
+      .replace(/\n/g, '')
 
     result.status = 'ok'
   } catch (e: any) {
