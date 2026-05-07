@@ -1279,6 +1279,7 @@ export default function App({ user }) {
   const [custSortBy, setCustSortBy] = useState("amount");
   const [loading,    setLoading]    = useState(false);
   const [loadError,  setLoadError]  = useState(null);
+  const [sfLoading,  setSfLoading]  = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [tasks,      setTasks]      = useState("");
   const [nps,        setNps]        = useState("");
@@ -1302,6 +1303,7 @@ export default function App({ user }) {
   }
 
   async function loadSnowflakeData(orgUuids) {
+    setSfLoading(true);
     try {
       const res=await fetch('/api/snowflake-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orgUuids})});
       if(!res.ok){const d=await res.json();console.warn('[snowflake]',d.error);return;}
@@ -1314,6 +1316,7 @@ export default function App({ user }) {
       if(tasks?.length)   setTasksIndex(buildTasksIndex(tasks));
       if(tickets?.length) setTicketsIndex(buildTicketsIndex(tickets));
     } catch(e){console.warn('[snowflake] load error:',e);}
+    finally{setSfLoading(false);}
   }
 
   async function loadCustomers() {
@@ -1350,6 +1353,7 @@ export default function App({ user }) {
             </button>
           ))}
           <div style={{flex:1}}/>
+          {sfLoading&&<div style={{display:"flex",alignItems:"center",gap:6,marginRight:12,fontSize:11,color:C.faint}}><Spinner size={11}/>Loading Snowflake data…</div>}
           <button onClick={()=>{setShowImport(p=>!p);setImportErr(null);}} style={{background:"none",border:`1px solid ${showImport?C.brand:C.border}`,borderRadius:6,margin:"0 12px",padding:"4px 10px",fontSize:11,color:showImport?C.brand:C.faint,cursor:"pointer"}}>↑ Import CSVs</button>
           <button onClick={()=>signOut()} style={{background:"none",border:`1px solid ${C.border}`,borderRadius:6,margin:"0 12px 0 0",padding:"4px 10px",fontSize:11,color:C.faint,cursor:"pointer"}}>Sign out</button>
         </div>
