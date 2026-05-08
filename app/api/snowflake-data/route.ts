@@ -99,7 +99,8 @@ export async function POST(req: Request) {
     }
 
     const payload = { accountManagers, tasks: taskRows, usage: usageRows, nps: npsRows, tickets: ticketRows }
-    g.__sfCache[cacheKey] = { data: payload, at: Date.now() }
+    const hasData = Object.keys(accountManagers).length > 0 || taskRows.length > 0 || usageRows.length > 0 || npsRows.length > 0 || ticketRows.length > 0
+    if (hasData) g.__sfCache[cacheKey] = { data: payload, at: Date.now() }
     return NextResponse.json(payload)
   } catch (err) {
     console.error('[/api/snowflake-data] failed:', err)

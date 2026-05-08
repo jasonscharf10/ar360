@@ -61,8 +61,10 @@ async function getConn(): Promise<snowflake.Connection> {
 
   await new Promise<void>((resolve, reject) => {
     conn.connect(err => {
-      if (err) reject(new Error(`Snowflake connect failed: ${err.message}`))
-      else resolve()
+      if (err) {
+        cache.conn = null
+        reject(new Error(`Snowflake connect failed: ${err.message}`))
+      } else resolve()
     })
   })
 
