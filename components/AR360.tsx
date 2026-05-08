@@ -1303,6 +1303,7 @@ export default function App({ user }) {
   }
 
   async function loadSnowflakeData(orgUuids) {
+    console.log('[snowflake] loadSnowflakeData called, orgUuids count:', orgUuids?.length, 'sample:', orgUuids?.[0]);
     setSfLoading(true);
     try {
       const res=await fetch('/api/snowflake-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orgUuids})});
