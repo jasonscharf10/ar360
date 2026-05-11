@@ -1306,9 +1306,12 @@ export default function App({ user }) {
     console.log('[snowflake] loadSnowflakeData called, orgUuids count:', orgUuids?.length, 'sample:', orgUuids?.[0]);
     setSfLoading(true);
     try {
+      console.log('[snowflake] fetching...');
       const res=await fetch('/api/snowflake-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orgUuids})});
+      console.log('[snowflake] fetch response:', res.status);
       if(!res.ok){const d=await res.json();console.warn('[snowflake]',d.error);return;}
       const {accountManagers,tasks,usage,nps,tickets}=await res.json();
+      console.log('[snowflake] data received — tasks:', tasks?.length, 'usage:', usage?.length, 'nps:', nps?.length, 'tickets:', tickets?.length, 'ams:', Object.keys(accountManagers||{}).length);
       if(accountManagers&&Object.keys(accountManagers).length){
         setCustomers(prev=>prev?prev.map(c=>({...c,accountManager:accountManagers[c.organizationUuid]||c.accountManager})):prev);
       }
@@ -1316,7 +1319,7 @@ export default function App({ user }) {
       if(nps?.length)     setNpsIndex(buildNpsIndex(nps));
       if(tasks?.length)   setTasksIndex(buildTasksIndex(tasks));
       if(tickets?.length) setTicketsIndex(buildTicketsIndex(tickets));
-    } catch(e){console.warn('[snowflake] load error:',e);}
+    } catch(e){console.error('[snowflake] load error:',e);}
     finally{setSfLoading(false);}
   }
 
