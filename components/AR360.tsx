@@ -1302,16 +1302,12 @@ export default function App({ user }) {
     if (newT) setTasksIndex(p=>p?{...newT,map:{...p.map,...newT.map}}:newT);
   }
 
-  async function loadSnowflakeData(orgUuids) {
-    console.log('[snowflake] loadSnowflakeData called, orgUuids count:', orgUuids?.length, 'sample:', orgUuids?.[0]);
+  async function loadSnowflakeData(orgUuids, attempt=0) {
     setSfLoading(true);
     try {
-      console.log('[snowflake] fetching...');
       const res=await fetch('/api/snowflake-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orgUuids})});
-      console.log('[snowflake] fetch response:', res.status);
       if(!res.ok){const d=await res.json();console.warn('[snowflake]',d.error);return;}
       const {accountManagers,tasks,usage,nps,tickets}=await res.json();
-      console.log('[snowflake] data received — tasks:', tasks?.length, 'usage:', usage?.length, 'nps:', nps?.length, 'tickets:', tickets?.length, 'ams:', Object.keys(accountManagers||{}).length);
       if(accountManagers&&Object.keys(accountManagers).length){
         setCustomers(prev=>prev?prev.map(c=>({...c,accountManager:accountManagers[c.organizationUuid]||c.accountManager})):prev);
       }
@@ -1319,7 +1315,15 @@ export default function App({ user }) {
       if(nps?.length)     setNpsIndex(buildNpsIndex(nps));
       if(tasks?.length)   setTasksIndex(buildTasksIndex(tasks));
       if(tickets?.length) setTicketsIndex(buildTicketsIndex(tickets));
-    } catch(e){console.error('[snowflake] load error:',e);}
+    } catch(e){
+      if(attempt<3){
+        console.warn(`[snowflake] network error, retrying (${attempt+1}/3)...`);
+        setSfLoading(false);
+        setTimeout(()=>loadSnowflakeData(orgUuids,attempt+1), 2000*(attempt+1));
+        return;
+      }
+      console.error('[snowflake] load error:',e);
+    }
     finally{setSfLoading(false);}
   }
 
